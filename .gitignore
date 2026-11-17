@@ -1,0 +1,6 @@
+build/
+signing/
+*.p12
+*.pem
+*.keychain-db
+.DS_Store
