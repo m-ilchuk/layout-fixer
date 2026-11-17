@@ -124,6 +124,26 @@ check("auto keeps a real Russian word", auto("привет", on: russianSet.loca
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
 check("edit distance", String(AutoFix.editDistance("everone", "everyone")), "1")
 
+// Release notes as the update dialog shows them.
+func plain(_ runs: [ReleaseNotes.Run]) -> String {
+    runs.map { $0.bold ? "[\($0.text)]" : $0.code ? "<\($0.text)>" : $0.text }.joined()
+}
+let notes = ReleaseNotes.parse("""
+## What's new
+
+**A settings window.** Click the icon.
+- Replaces `LayoutFixer.app`
+• Turn on **Open at login**
+
+
+""")
+check("notes: kinds", notes.map { "\($0.kind)" }.joined(separator: ","), "heading,blank,text,bullet,bullet")
+check("notes: heading", plain(notes[0].runs), "What's new")
+check("notes: bold", plain(notes[2].runs), "[A settings window.] Click the icon.")
+check("notes: code in a bullet", plain(notes[3].runs), "Replaces <LayoutFixer.app>")
+check("notes: • bullet with bold", plain(notes[4].runs), "Turn on [Open at login]")
+check("notes: unclosed markers stay text", plain(ReleaseNotes.runs("2 ** 3 and a ` tick")), "2 ** 3 and a ` tick")
+
 // Versions for the update check.
 check("version from a tag", Version("v1.4.2")?.description, "1.4.2")
 check("version pads missing parts", Version("2.1")?.description, "2.1.0")

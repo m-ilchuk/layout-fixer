@@ -4,8 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
-CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift Sources/Version.swift)
-APP_ONLY=(Sources/Flash.swift Sources/Updater.swift Sources/SettingsWindow.swift Sources/main.swift)
+CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift Sources/Version.swift Sources/ReleaseNotes.swift)
+APP_ONLY=(Sources/Flash.swift Sources/Updater.swift Sources/SettingsWindow.swift Sources/ReleaseNotesView.swift Sources/main.swift)
 MIN_MACOS=13.0
 # Keep the compiler's cache inside build/, so the build writes nowhere else.
 SWIFTC=(swiftc -O -module-cache-path build/module-cache)

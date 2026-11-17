@@ -633,12 +633,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func installUpdate() {
         guard !updater.installing, case .available(let release) = updater.status else { return }
-        let notes = release.notes.split(separator: "\n").prefix(8).joined(separator: "\n")
         let alert = NSAlert()
         alert.messageText = "Install Layout Fixer \(release.version)?"
-        alert.informativeText = (notes.isEmpty ? "" : notes + "\n\n") + "It downloads, builds on this Mac "
-            + "(about a minute) and restarts by itself. macOS then asks you to allow it in Accessibility again: "
-            + "remove the old Layout Fixer from that list with – and add it again with +."
+        alert.informativeText = "It builds on this Mac (about a minute) and restarts by itself. "
+            + "Then allow it again in Accessibility: the window shows how."
+        if !release.notes.isEmpty { alert.accessoryView = ReleaseNotesView.make(release.notes) }
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
