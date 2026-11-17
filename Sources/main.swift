@@ -10,7 +10,10 @@ let log = Logger(subsystem: "io.github.m-ilchuk.layoutfixer", category: "fixer")
 
 // Events this app posts carry this marker so its own tap lets them through untouched.
 let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"
-let keyDelayMicroseconds: useconds_t = 1500
+/// Between synthetic keys. At 1.5 ms an app (TextEdit, in the end-to-end test) dropped some backspaces.
+let keyDelayMicroseconds: useconds_t = 4000
+/// After the backspaces and before typing the replacement.
+let pauseAfterEraseMicroseconds: useconds_t = 20_000
 let rightOptionTapSeconds: TimeInterval = 0.4
 /// Longer selections are converted but not selected again (that takes one ⇧← per character).
 let maxReselectByArrows = 500
@@ -127,9 +130,19 @@ final class Fixer {
     }
 
     /// Carry out a session edit: erase, type, switch the keyboard, flash.
+    /// Through Accessibility when the app allows it (one step, nothing to drop), else as keystrokes.
     private func apply(_ edit: TypingSession.Edit) {
-        Typist.erase(count: edit.erase)
-        Typist.type(edit.text)
+        switch Selection.replaceBeforeCursor(edit.erase, with: edit.text) {
+        case .replaced:
+            log.notice("replaced \(edit.erase) characters through accessibility")
+        case .unverified:
+            log.notice("replaced \(edit.erase) characters through accessibility, but couldn't read the result back")
+        case .notPossible:
+            Typist.erase(count: edit.erase)
+            usleep(pauseAfterEraseMicroseconds)
+            Typist.type(edit.text)
+            log.notice("replaced \(edit.erase) characters with keystrokes")
+        }
         if edit.switches { edit.target.select() }
         Flash.shared.show(from: edit.source, to: edit.target)
     }
@@ -302,6 +315,35 @@ enum Selection {
         }
         guard pasted.count <= maxReselectByArrows else { return }
         Typist.selectBackward(count: pasted.count)
+    }
+
+    enum Replacement { case replaced, unverified, notPossible }
+
+    /// Replace the `count` characters before the cursor with `text` through Accessibility, in one step: no
+    /// keystrokes an app can drop. `.notPossible` when the app doesn't allow it and nothing changed (send
+    /// keystrokes instead); `.unverified` when it took the text but it can't be read back (don't type it again).
+    static func replaceBeforeCursor(_ count: Int, with text: String) -> Replacement {
+        guard count > 0, let element = focusedElement(), let cursor = selectedRange(in: element),
+              cursor.length == 0, cursor.location >= count
+        else { return .notPossible }
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
+              settable.boolValue
+        else { return .notPossible }
+        var word = CFRange(location: cursor.location - count, length: count)
+        guard let range = AXValueCreate(.cfRange, &word),
+              AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, range) == .success
+        else { return .notPossible }
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
+        else {
+            // Put the cursor back where it was, so the keystrokes that follow go to the right place.
+            var back = cursor
+            if let value = AXValueCreate(.cfRange, &back) {
+                AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value)
+            }
+            return .notPossible
+        }
+        return textBeforeCursor((text as NSString).length) == text ? .replaced : .unverified
     }
 
     /// The `length` characters before the cursor in the focused field, when the app shares its text (most native

@@ -8,7 +8,8 @@ import Carbon
 //   ./e2e.sh               a sample of each kind of sentence, every scenario
 //   ./e2e.sh all           every corpus sentence
 //
-// Needs: Accessibility for the app running it (Terminal), TextEdit allowed to be controlled (asked once),
+// Needs: TextEdit closed (its autocorrect is turned off for the run, then back on), Accessibility for the app
+// running it (Terminal), TextEdit allowed to be controlled (asked once),
 // Layout Fixer running with "Fix automatically while typing" on, and ABC and Ukrainian-PC turned on.
 
 let keyDelay: useconds_t = 35_000       // between keys: a fast typist
@@ -16,7 +17,11 @@ let afterSpaceDelay: useconds_t = 150_000
 let settle: useconds_t = 700_000         // before reading what TextEdit shows
 let bundleID = "io.github.m-ilchuk.layoutfixer"
 
+/// Undoes the run's setting changes; every way out calls it.
+var cleanUp: () -> Void = {}
+
 func fail(_ message: String) -> Never {
+    cleanUp()
     print("e2e: \(message)")
     exit(2)
 }
@@ -31,6 +36,42 @@ guard NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).f
 guard UserDefaults(suiteName: bundleID)?.bool(forKey: "autoFix") == true else {
     fail("turn on \"Fix automatically while typing\" in Layout Fixer's window first.")
 }
+// TextEdit's own corrections would change words on Space ("тікет" → "пікет", "webhook" → "web hook") and make
+// misses that aren't Layout Fixer's. They're turned off for the run and put back after; TextEdit reads its
+// settings when it opens, so it has to be closed first.
+guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.TextEdit").isEmpty else {
+    fail("quit TextEdit first (⌘Q): the test turns off its autocorrect while it runs and turns it back on after.")
+}
+let textEditSettings = ["CorrectSpellingAutomatically", "SmartQuotes", "SmartDashes", "TextReplacement",
+                        "SmartCopyPaste", "NSAutomaticSpellingCorrectionEnabled"]
+
+func defaults(_ arguments: [String]) -> (status: Int32, output: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+    process.arguments = arguments
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = Pipe()
+    try? process.run()
+    process.waitUntilExit()
+    let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    return (process.terminationStatus, output.trimmingCharacters(in: .whitespacesAndNewlines))
+}
+/// Each setting's value before the run (nil: it wasn't set).
+let previousTextEditSettings: [String: String?] = Dictionary(uniqueKeysWithValues: textEditSettings.map { key in
+    let read = defaults(["read", "com.apple.TextEdit", key])
+    return (key, read.status == 0 ? read.output : nil)
+})
+for key in textEditSettings { _ = defaults(["write", "com.apple.TextEdit", key, "-bool", "false"]) }
+func restoreTextEdit() {
+    for (key, value) in previousTextEditSettings {
+        if let value { _ = defaults(["write", "com.apple.TextEdit", key, "-bool", value == "1" ? "true" : "false"]) }
+        else { _ = defaults(["delete", "com.apple.TextEdit", key]) }
+    }
+}
+cleanUp = restoreTextEdit
+signal(SIGINT) { _ in cleanUp(); exit(130) }
+
 let installed = KeyLayout.installed(ids: ["com.apple.keylayout.ABC", "com.apple.keylayout.Ukrainian-PC"])
 guard installed.count == 2 else { fail("needs the ABC and Ukrainian - PC layouts.") }
 let english = installed[0], ukrainian = installed[1]
@@ -131,6 +172,7 @@ for scenario in Scenario.allCases {
     details.forEach { print($0) }
     report += [summary] + details + [""]
 }
+cleanUp()
 try? report.joined(separator: "\n").write(to: reportURL, atomically: true, encoding: .utf8)
 print("e2e: done. The documents stay open in TextEdit; the report is in \(reportURL.path).")
 exit(misses == 0 ? 0 : 1)

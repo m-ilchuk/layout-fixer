@@ -17,6 +17,9 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 - A short word typed right after you switch the layout is fixed too (`як справи oj робиш` → `що робиш`): when
   macOS reports a switch late, the keys typed just before it are read again on the new layout. `що` and a few
   other short Ukrainian words were missing from its list.
+- Fixing a word no longer leaves stray letters behind (`ghпройшла`, `jо десятій`): apps could drop some of the
+  quick backspaces. Where the app allows it, the word is now replaced in one step through Accessibility and read
+  back; elsewhere the keystrokes are slower.
 - **Export Debug Log…** keeps the whole day: Layout Fixer's log lines are now kept on disk by macOS, not only
   briefly in memory.
 
