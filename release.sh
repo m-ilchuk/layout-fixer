@@ -3,7 +3,7 @@
 #
 # Semantic versioning: MAJOR when something people rely on changes or goes away, MINOR for new features,
 # PATCH for fixes. Checks main is clean and in sync, runs the tests, sets the version in Info.plist, commits,
-# tags vX.Y.Z, pushes, and creates the GitHub Release with notes from the commits since the last one.
+# tags vX.Y.Z, pushes, and creates the GitHub Release listing the commit titles since the last one.
 # Installed apps see it within a day (or on Check for Updates…); the installer installs it from then on.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -26,7 +26,12 @@ command -v gh >/dev/null || fail "needs the GitHub CLI (brew install gh, then gh
 echo "Testing…"
 ./build.sh --test >/dev/null || fail "tests failed: run ./build.sh --test"
 echo "Building…"
-./build.sh >/dev/null || fail "build failed: run ./build.sh"
+./build.sh >/dev/null 2>&1 || fail "build failed: run ./build.sh"
+
+# Release notes: the commit titles since the previous release.
+PREVIOUS=$(git describe --tags --abbrev=0 2>/dev/null || true)
+NOTES=$(git log --no-merges --pretty='- %s' ${PREVIOUS:+"$PREVIOUS"..}HEAD | grep -vE '^- (Release [0-9]|Version 0\.0\.0)' || true)
+[[ -n "$NOTES" ]] || fail "nothing new since $PREVIOUS."
 
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist)
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Info.plist
@@ -34,5 +39,5 @@ BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist)
 git commit -q -m "Release $VERSION" Info.plist
 git tag -a "$TAG" -m "Layout Fixer $VERSION"
 git push -q origin main "$TAG"
-gh release create "$TAG" --title "Layout Fixer $VERSION" --generate-notes --verify-tag
+gh release create "$TAG" --title "Layout Fixer $VERSION" --notes "$NOTES" --verify-tag
 echo "Released $TAG: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/$TAG"
