@@ -120,11 +120,12 @@ final class Fixer {
             if flags.contains(.maskAlternate) { reset("⌥⌫") } else if !buffer.isEmpty { buffer.removeLast() }
             return true
         }
-        guard let layoutID = currentLayoutID, let layout = layouts.layout(id: layoutID) else {
+        let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
+        guard let layout = typingLayout(event, stroke) else {
             reset("typing on a layout Layout Fixer doesn't use")
             return true
         }
-        let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
+        let layoutID = layout.id
         guard let text = layout.character(for: stroke), text.count == 1 else {
             reset("a key that types no single character")
             return true
@@ -133,6 +134,33 @@ final class Fixer {
         buffer.append(Typed(stroke: stroke, layoutID: layoutID, text: text))
         if buffer.count > maxBufferLength { buffer.removeFirst(buffer.count - maxBufferLength) }
         return true
+    }
+
+    /// The layout this key was really typed on. macOS is asked on every key (a missed "layout changed" notice left
+    /// the app sure it was Ukrainian while ABC was on, so "];fr" passed as "їжак"), and the character the event
+    /// carries settles it when macOS's answer doesn't type that character.
+    private func typingLayout(_ event: CGEvent, _ stroke: KeyStroke) -> KeyLayout? {
+        let reported = KeyLayout.currentLayoutID()
+        if reported != currentLayoutID {
+            log.info("layout changed without a notice: \(self.currentLayoutID ?? "none", privacy: .public) → \(reported ?? "none", privacy: .public)")
+            layoutChanged(to: reported)
+        }
+        guard let id = reported, let layout = layouts.layout(id: id) else { return nil }
+        if let typed = Self.characters(of: event), let expected = layout.character(for: stroke), typed != expected,
+           let actual = layouts.layouts.first(where: { $0.character(for: stroke) == typed }) {
+            log.info("key typed on \(actual.id, privacy: .public) while macOS reports \(layout.id, privacy: .public)")
+            return actual
+        }
+        return layout
+    }
+
+    /// The text macOS put in a key event, when it put any.
+    private static func characters(of event: CGEvent) -> String? {
+        var length = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        event.keyboardGetUnicodeString(maxStringLength: chars.count, actualStringLength: &length, unicodeString: &chars)
+        guard length > 0 else { return nil }
+        return String(utf16CodeUnits: chars, count: length)
     }
 
     private func carbonModifiers(_ flags: CGEventFlags) -> UInt32 {
