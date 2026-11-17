@@ -83,9 +83,9 @@ When a new version is out, the window's update button (and the right-click menu)
 Click it, read what's new and click
 **Install**: it downloads, builds and restarts by itself in about a minute (the icon shows ⟳ meanwhile).
 
-**After every update, allow it again.** macOS sees each new build as a new app: in Privacy & Security ›
-**Accessibility**, select Layout Fixer, remove it with **–**, then add it again with **+** as in step 3 above.
-(Updating from 0.1.0, the app was still called LayoutFixer: remove that entry and add **Layout Fixer**.)
+Updates keep the Accessibility permission. Only when you update from 0.2.1 or earlier, allow it once more: in
+Privacy & Security › **Accessibility**, select Layout Fixer (or the older LayoutFixer), remove it with **–**, then
+open Layout Fixer and allow it when asked.
 
 You can also update by running the install line again.
 
@@ -99,8 +99,8 @@ You can also update by running the install line again.
   with it, is ⌥ doing its usual job.
 - **It beeps.** Nothing is selected and you haven't typed anything since your last click, so there is nothing to
   convert.
-- **It stopped working after an update.** Allow it again: remove Layout Fixer from the Accessibility list with **–**
-  and add it back with **+**.
+- **It's switched on in Accessibility, but the window still shows ⚠** (after updating from 0.2.1 or earlier). That
+  entry belongs to the old build: select it, remove it with **–**, then open Layout Fixer and allow it when asked.
 - **Wrong text in a browser or chat app.** Some apps don't tell macOS what is selected. Layout Fixer then copies the
   selection, converts it and pastes it back (your clipboard is restored after). Tap once and wait half a second
   before tapping again.
@@ -124,6 +124,11 @@ It keeps the keys only in memory (at most 300, cleared on every click, Enter or 
 text anywhere. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
 **Check for updates automatically** turns it off. All of its code is in [`Sources/`](Sources).
 
+So that updates keep the Accessibility permission, macOS recognises Layout Fixer by its identifier
+(`io.github.m-ilchuk.layoutfixer`) rather than by one build's fingerprint. The trade-off: a program already on your
+Mac that took the same identifier would get the same permission. If you'd rather tie it to your own builds only,
+sign them with a local certificate (see Develop below).
+
 ## How it works
 
 - **The last word:** it remembers the keys you pressed since your last click, not the characters. Converting deletes
@@ -146,15 +151,16 @@ git clone https://github.com/m-ilchuk/layout-fixer.git && cd layout-fixer
 
 ### Keep permissions across rebuilds
 
-macOS ties the Accessibility permission to the app's signature. An ad-hoc signature changes on every build, so each
-build has to be allowed again. A local certificate fixes that (once, about a minute):
+Builds without a certificate are recognised by their identifier, so they keep the permission (see Privacy). To tie it
+to builds signed by you instead, make a local certificate (once, about a minute):
 
 1. Keychain Access › menu **Keychain Access › Certificate Assistant › Create a Certificate…**
 2. Name `LayoutFixer Local Signing`, Identity Type **Self-Signed Root**, Certificate Type **Code Signing** › Create.
 3. In the **login** keychain, double-click the new certificate › **Trust** › Code Signing: **Always Trust**.
 4. `./install.sh` (it prints `signed with LayoutFixer Local Signing`), then allow Layout Fixer one last time.
 
-`build.sh` uses the certificate whenever it finds it, and signs ad-hoc otherwise.
+`build.sh` uses the certificate whenever it finds it, and signs ad-hoc otherwise (`LAYOUT_FIXER_ADHOC=1` forces
+ad-hoc, to test that path).
 
 ### Release
 

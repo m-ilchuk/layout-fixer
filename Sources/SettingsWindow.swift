@@ -128,8 +128,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         heading.alignment = .centerY
 
         accessLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        accessHelp.stringValue = "Turn on Layout Fixer in the list. Not there? Click +, press ⌘⇧G, type "
-            + "~/Applications/Layout Fixer.app, click Open and turn it on."
+        accessHelp.stringValue = "Turn on Layout Fixer in the list. Already on? That entry is from an older build: "
+            + "select it, click –, then open Layout Fixer again and allow it. Not there? Click +, press ⌘⇧G, "
+            + "type ~/Applications/Layout Fixer.app, click Open and turn it on."
         accessHelp.textColor = .secondaryLabelColor
         accessButton.target = self
         accessButton.action = #selector(openAccessibility)

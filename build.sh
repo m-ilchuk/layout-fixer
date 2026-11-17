@@ -36,14 +36,17 @@ cp Icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"  # made by: swift Ic
 COMMIT="${LAYOUT_FIXER_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 /usr/libexec/PlistBuddy -c "Add :LFSourceCommit string $COMMIT" "$APP/Contents/Info.plist"
 
-# With the "LayoutFixer Local Signing" certificate (README: "Keep permissions across rebuilds") every build has the
-# same signature, so macOS keeps the app's permissions. Without it: ad-hoc, allow it again after each build.
+# macOS ties Accessibility to the app's "designated requirement". With the "LayoutFixer Local Signing" certificate
+# (README: "Keep permissions across rebuilds") that is the certificate. Without it the build is ad-hoc, whose
+# requirement would be this build's own hash, new on every update; so it says "identifier
+# io.github.m-ilchuk.layoutfixer" instead, and every later build keeps the permission (README: Privacy).
+# LAYOUT_FIXER_ADHOC=1 makes an ad-hoc build even where the certificate exists (to test this path).
 IDENTITY="LayoutFixer Local Signing"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
+if [[ -z "${LAYOUT_FIXER_ADHOC:-}" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
   codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
   echo "signed with $IDENTITY"
 else
-  codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
-  echo "ad-hoc signed"
+  codesign --force --sign - --identifier "$BUNDLE_ID" -r="designated => identifier \"$BUNDLE_ID\"" "$APP"
+  echo "ad-hoc signed, recognised by its identifier"
 fi
 echo "built $APP"

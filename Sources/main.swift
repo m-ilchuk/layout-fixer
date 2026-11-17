@@ -635,8 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !updater.installing, case .available(let release) = updater.status else { return }
         let alert = NSAlert()
         alert.messageText = "Install Layout Fixer \(release.version)?"
-        alert.informativeText = "It builds on this Mac (about a minute) and restarts by itself. "
-            + "Then allow it again in Accessibility: the window shows how."
+        alert.informativeText = "It builds on this Mac (about a minute) and restarts by itself, "
+            + "keeping its Accessibility permission."
         if !release.notes.isEmpty { alert.accessoryView = ReleaseNotesView.make(release.notes) }
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")

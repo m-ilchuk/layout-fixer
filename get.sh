@@ -71,9 +71,9 @@ if (( UPDATING )); then
 
 Layout Fixer is updated and running.
 
-Allow it again: macOS sees each new build as a new app. Open System Settings › Privacy & Security ›
-Accessibility, select LayoutFixer or Layout Fixer, remove it with –, then add it again with + (press ⌘⇧G
-and type ~/Applications/Layout Fixer.app) and turn it on.
+If its window shows ⚠ (once, when updating from 0.2.1 or earlier): open System Settings › Privacy &
+Security › Accessibility, select Layout Fixer (or LayoutFixer), remove it with –, then open Layout Fixer
+and allow it when asked. Later updates keep the permission.
 MSG
 else
   cat <<'MSG'
