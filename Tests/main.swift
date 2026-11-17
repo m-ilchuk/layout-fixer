@@ -135,6 +135,14 @@ check("auto: ,helyt → брудне", auto(",helyt", on: english), "брудн�
 check("auto: the whole phrase", auto("];fr yf `fyre phj,bd cdj' ,helyt lskj", on: english), "їжак на ґанку зробив своє брудне діло")
 check("auto: English it's stays", auto("it's", on: english), "nil")
 check("auto: English (hello) stays", auto("(hello)", on: english), "nil")
+// Ukrainian letters that are brackets or slashes on English: what's left between them isn't a word ("vv").
+check("auto: Хмм... stays (not {vv///)", auto("Хмм...", on: ukrainian), "nil")
+check("auto: Хмм stays (not {vv)", auto("Хмм", on: ukrainian), "nil")
+check("auto: Хмм, stays", auto("Хмм,", on: ukrainian), "nil")
+check("auto: Ммм... stays (not Vvv///)", auto("Ммм...", on: ukrainian), "nil")
+check("auto: Руддщю → Hello.", auto("Руддщю", on: ukrainian), "Hello.")
+check("auto: Руддщ! → Hello!", auto("Руддщ!", on: ukrainian), "Hello!")
+check("auto: шеєі → it's", auto("шеєі", on: ukrainian), "it's")
 
 // Why a word was left alone (the log shows the reason).
 func skip(_ text: String, on layout: KeyLayout) -> String {

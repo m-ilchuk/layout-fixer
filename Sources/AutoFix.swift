@@ -57,6 +57,9 @@ enum AutoFix {
     static let minimumLength = 3
     /// How many of the spell checker's guesses count when asking whether typed text is a typo where it was typed.
     static let guessesConsidered = 3
+    /// Punctuation a word can start or end with in a sentence. Brackets, slashes and the like can't: those turn up
+    /// when letter keys are read on the other layout ("Хмм..." → "{vv///"), and around them is code, not a word.
+    static let wordEdgePunctuation = CharacterSet(charactersIn: ".,!?:;'\"()«»„“”‘’-–—…*_@#¿¡")
     /// How far a spell-checker correction may be to count as a typo of a real word ("everone" → "everyone"):
     /// none for short words, where nearly anything is that close to some word ("lkz" → "lap").
     static func maximumTypoDistance(forLength length: Int) -> Int {
@@ -280,8 +283,9 @@ enum AutoFix {
     }
 
     /// Letters, with punctuation only at the ends or an apostrophe/hyphen inside ("it's", "hey,"): no digits, no code.
+    /// Only punctuation words really carry counts at the ends: "{vv///" (what "Хмм..." types on English) isn't a word.
     private static func looksLikeWord(_ text: String) -> Bool {
-        let core = text.trimmingCharacters(in: .punctuationCharacters)
+        let core = text.trimmingCharacters(in: wordEdgePunctuation)
         let allowed = CharacterSet.letters.union(CharacterSet(charactersIn: "'’-"))
         return !core.isEmpty && core.unicodeScalars.allSatisfy(allowed.contains)
             && core.first?.isLetter == true && core.last?.isLetter == true
