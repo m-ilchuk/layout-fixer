@@ -147,6 +147,19 @@ check("skip: not a word on Ukrainian either", skip("qxzv", on: english), "notAWo
 check("skip: nothing typed before the space", skip("ghbdsn ", on: english), "noWord")
 check("skip: converts", skip("ghbdsn", on: english), "fixed")
 
+// A phrase that switches layouts word by word: "Інтеграція з Stripe" right, then "ghjqikf ecgsiyj" on English.
+let stripeStart = typed("Інтеграція з ", on: ukrainian) + typed("Stripe ", on: english)
+func autoFrom(_ prefix: [Typed], _ word: String, on layout: KeyLayout) -> String? {
+    let buffer = prefix + typed(word, on: layout)
+    guard let (range, target) = AutoFix.fix(buffer: buffer, layouts: ukrainianSet) else { return nil }
+    var out = buffer
+    out.replaceSubrange(range, with: Converter.retype(buffer[range], on: target))
+    return out.map(\.text).joined()
+}
+check("auto: after Stripe, ghjqikf → пройшла", autoFrom(stripeStart, "ghjqikf", on: english), "Інтеграція з Stripe пройшла")
+check("auto: then ecgsiyj → успішно",
+      autoFrom(stripeStart + typed("пройшла ", on: ukrainian), "ecgsiyj", on: english), "Інтеграція з Stripe пройшла успішно")
+
 // Short words before an auto-fixed word: "з" is a word in Ukrainian and "p" in English, so on its own it stays.
 check("auto: a short word before the fixed one stays", auto("синхронізацію з Сщтіефте", on: ukrainian), "синхронізацію з Constant")
 check("auto: a short word at the start stays", auto("з Сщтіефте", on: ukrainian), "з Constant")

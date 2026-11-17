@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "Layout Fixer.app" for Apple silicon and Intel (and runs the tests with --test).
+# Builds "Layout Fixer.app" for this Mac (and runs the tests with --test).
 # Needs only Apple's command line tools (xcode-select --install).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -7,8 +7,10 @@ mkdir -p build
 CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift Sources/Version.swift Sources/ReleaseNotes.swift Sources/UpdateProgress.swift)
 APP_ONLY=(Sources/Flash.swift Sources/Updater.swift Sources/SettingsWindow.swift Sources/ReleaseNotesView.swift Sources/DebugLog.swift Sources/main.swift)
 MIN_MACOS=13.0
-# Keep the compiler's cache inside build/, so the build writes nowhere else.
-SWIFTC=(swiftc -O -module-cache-path build/module-cache)
+# The compiler's cache of Apple's frameworks: most of a first build (about 40 s of 45). Inside build/ by default;
+# the installer keeps it in ~/Library/Caches, so updates reuse it (about 8 s). The compiler checks it per version.
+MODULE_CACHE="${LAYOUT_FIXER_MODULE_CACHE:-build/module-cache}"
+SWIFTC=(swiftc -O -module-cache-path "$MODULE_CACHE")
 
 if [[ "${1:-}" == "--test" ]]; then
   "${SWIFTC[@]}" "${CORE[@]}" Tests/main.swift -o build/tests
@@ -19,16 +21,28 @@ BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist)
 APP="build/Layout Fixer.app"  # the program inside is still LayoutFixer
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
-# "==> " lines are progress steps: get.sh shows the latest one while it waits.
-echo "==> Compiling for Apple silicon and Intel"
+# Built on the Mac that runs it, so only for that Mac's chip: the hardware, not the shell (a Terminal under
+# Rosetta says x86_64 on Apple silicon). LAYOUT_FIXER_UNIVERSAL=1 builds both, to hand one app to anyone.
+if [[ -n "${LAYOUT_FIXER_UNIVERSAL:-}" ]]; then
+  ARCHS=(arm64 x86_64)
+  STEP="Compiling for Apple silicon and Intel"
+elif [[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == "1" ]]; then
+  ARCHS=(arm64)
+  STEP="Compiling for Apple silicon"
+else
+  ARCHS=(x86_64)
+  STEP="Compiling for Intel"
+fi
+# "==> " lines are progress steps: get.sh and the in-app updater show the latest one while they wait.
+echo "==> $STEP"
 PIDS=()
-for ARCH in arm64 x86_64; do
+for ARCH in "${ARCHS[@]}"; do
   "${SWIFTC[@]}" -target "$ARCH-apple-macos$MIN_MACOS" "${CORE[@]}" "${APP_ONLY[@]}" -o "build/LayoutFixer-$ARCH" &
   PIDS+=($!)
 done
 for PID in "${PIDS[@]}"; do wait "$PID" || { echo "build.sh: compiling failed" >&2; exit 1; }; done
 echo "==> Signing"
-lipo -create build/LayoutFixer-arm64 build/LayoutFixer-x86_64 -output "$APP/Contents/MacOS/LayoutFixer"
+lipo -create "${ARCHS[@]/#/build/LayoutFixer-}" -output "$APP/Contents/MacOS/LayoutFixer"
 cp Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources"
 cp Icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"  # made by: swift Icon/make-icon.swift

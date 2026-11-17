@@ -38,6 +38,10 @@ else
   echo "Installing Layout Fixer $REF"
 fi
 
+# Reused by every update: the compiler's cache of Apple's frameworks, most of the build time.
+export LAYOUT_FIXER_MODULE_CACHE="$HOME/Library/Caches/io.github.m-ilchuk.layoutfixer/module-cache"
+mkdir -p "$LAYOUT_FIXER_MODULE_CACHE"
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 echo "Downloading $SOURCE_URL"

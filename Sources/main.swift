@@ -140,19 +140,31 @@ final class Fixer {
     /// the app sure it was Ukrainian while ABC was on, so "];fr" passed as "їжак"), and the character the event
     /// carries settles it when macOS's answer doesn't type that character.
     private func typingLayout(_ event: CGEvent, _ stroke: KeyStroke) -> KeyLayout? {
+        // 1. The character macOS put in the event, when it did: the layout that types it.
+        if let typed = Self.characters(of: event) {
+            let matching = layouts.layouts.filter { $0.character(for: stroke) == typed }
+            if let current = matching.first(where: { $0.id == currentLayoutID }) { return current }
+            if let actual = matching.first {
+                log.info("key typed on \(actual.id, privacy: .public) while the app had \(self.currentLayoutID ?? "none", privacy: .public)")
+                layoutChanged(to: actual.id)
+                return actual
+            }
+        }
+        // 2. What macOS reports, except just after the app switched the layout itself: then the report can
+        //    still name the old layout for a moment, and the app's own switch is the truth.
         let reported = KeyLayout.currentLayoutID()
-        if reported != currentLayoutID {
+        let justSwitched = switchedAt.map { Date().timeIntervalSince($0) < AppSwitch.graceSeconds } ?? false
+        if reported != currentLayoutID && !(justSwitched && reported == switchedFrom) {
             log.info("layout changed without a notice: \(self.currentLayoutID ?? "none", privacy: .public) → \(reported ?? "none", privacy: .public)")
             layoutChanged(to: reported)
         }
-        guard let id = reported, let layout = layouts.layout(id: id) else { return nil }
-        if let typed = Self.characters(of: event), let expected = layout.character(for: stroke), typed != expected,
-           let actual = layouts.layouts.first(where: { $0.character(for: stroke) == typed }) {
-            log.info("key typed on \(actual.id, privacy: .public) while macOS reports \(layout.id, privacy: .public)")
-            return actual
-        }
-        return layout
+        return currentLayoutID.flatMap { layouts.layout(id: $0) }
     }
+
+    /// The app's own last layout switch (after a fix), so a late report of the old layout isn't believed.
+    private var switchedAt: Date?
+    private var switchedFrom: String?
+    private enum AppSwitch { static let graceSeconds: TimeInterval = 1 }
 
     /// The text macOS put in a key event, when it put any.
     private static func characters(of event: CGEvent) -> String? {
@@ -284,6 +296,8 @@ final class Fixer {
     }
 
     private func switchLayout(to layout: KeyLayout, from source: KeyLayout?) {
+        switchedFrom = currentLayoutID
+        switchedAt = Date()
         layout.select()
         layoutChanged(to: layout.id)
         Flash.shared.show(from: source, to: layout)
