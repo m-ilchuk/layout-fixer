@@ -106,6 +106,10 @@ You can also update by running the install line again.
   before tapping again.
 - **It converts to the wrong language.** Check the **Switches …** line in the window. If it isn't your pair, turn the right
   layouts on in Input Sources. With several languages, switch to yours once: English goes to the last one you used.
+- **Something didn't convert, and you'd like to know why.** Click **Export Debug Log…** in the window (or right-click
+  the menu bar icon) and send the file to whoever helps you. It lists each tap and, for fix-while-typing, why a word
+  was left as typed (for example "it reads as a real word where it was typed", or "memory last cleared by a
+  click"). It never contains your text: only counts, layouts and reasons.
 - **What is it doing?** Its log shows each tap, without your text:
 
   ```bash
@@ -114,7 +118,7 @@ You can also update by running the install line again.
 
 ## Uninstall
 
-Quit it (right-click the ⌨ icon › **Quit Layout Fixer**), delete `~/Applications/Layout Fixer.app`, and remove Layout Fixer from Privacy & Security ›
+Quit it (right-click the ⌨ icon › **Quit Layout Fixer**, or **Quit** in the window), delete `~/Applications/Layout Fixer.app`, and remove Layout Fixer from Privacy & Security ›
 Accessibility with **–**.
 
 ## Privacy

@@ -41,10 +41,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var checkboxes: [NSButton] = []
     private var refreshTimer: Timer?
 
-    init(settings: [Setting], status: @escaping () -> SettingsStatus, update: @escaping () -> Void) {
+    private let exportAction: () -> Void
+
+    init(settings: [Setting], status: @escaping () -> SettingsStatus, update: @escaping () -> Void,
+         exportLog: @escaping () -> Void) {
         self.settings = settings
         self.status = status
         self.updateAction = update
+        self.exportAction = exportLog
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsWindow.width, height: 100),
                           styleMask: [.titled, .closable], backing: .buffered, defer: true)
         super.init()
@@ -167,8 +171,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         updateButton.target = self
         updateButton.action = #selector(update)
         updateButton.bezelStyle = .rounded
-        let quit = NSButton(title: "Quit Layout Fixer", target: NSApp, action: #selector(NSApplication.terminate(_:)))
+        let quit = NSButton(title: "Quit", target: NSApp, action: #selector(NSApplication.terminate(_:)))
         quit.bezelStyle = .rounded
+        let export = NSButton(title: "Export Debug Log…", target: self, action: #selector(exportLog))
+        export.bezelStyle = .rounded
         progressBar.style = .bar
         progressBar.isIndeterminate = false
         progressBar.minValue = 0
@@ -187,7 +193,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                                         usage, pairLabel,
                                         separator()]
                                        + checkboxes
-                                       + [separator(), notch, row([updateButton, quit]), progressRow])
+                                       + [separator(), notch, row([updateButton, export, quit]), progressRow])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -225,6 +231,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func update() { updateAction() }
+    @objc private func exportLog() { exportAction() }
 
     @objc private func openAccessibility() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)

@@ -42,14 +42,39 @@ enum AutoFix {
     static let maximumTypoDistance = 2
 
     /// The range of `buffer` to retype on `target`, or nil to leave it. `buffer` ends with the finished word.
+    /// Why a word was left as typed; the log shows it (never the word itself).
+    enum Skip: String {
+        case noWord = "no word typed before the space since the memory was last cleared"
+        case mixedLayouts = "the word was typed on more than one layout"
+        case noOtherLayout = "no other layout to switch to"
+        case tooShort = "shorter than 3 keys"
+        case notAWordThere = "it would not look like a word on the other layout"
+        case realWordHere = "it reads as a real word where it was typed"
+        case notAWordOnOtherLayout = "it isn't a word on the other layout either"
+    }
+
+    enum Decision {
+        case fix(range: Range<Int>, target: KeyLayout)
+        case skip(Skip)
+    }
+
+    /// The range of `buffer` to retype on `target`, or nil to leave it. `buffer` ends with the finished word.
     static func fix(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller())
         -> (range: Range<Int>, target: KeyLayout)? {
+        if case .fix(let range, let target) = decide(buffer: buffer, layouts: layouts, speller: speller) {
+            return (range, target)
+        }
+        return nil
+    }
+
+    static func decide(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller()) -> Decision {
         let words = wordRanges(in: buffer)
-        guard let last = words.last, last.upperBound == buffer.count,
-              let (source, target) = layoutsOf(buffer[last], layouts: layouts),
-              buffer[last].count >= minimumLength,
-              shouldFlip(buffer[last], from: source, to: target, speller: speller)
-        else { return nil }
+        guard let last = words.last, last.upperBound == buffer.count else { return .skip(.noWord) }
+        guard let id = buffer[last].first?.layoutID, buffer[last].allSatisfy({ $0.layoutID == id })
+        else { return .skip(.mixedLayouts) }
+        guard let (source, target) = layoutsOf(buffer[last], layouts: layouts) else { return .skip(.noOtherLayout) }
+        guard buffer[last].count >= minimumLength else { return .skip(.tooShort) }
+        if let reason = skipReason(buffer[last], from: source, to: target, speller: speller) { return .skip(reason) }
 
         // Walk back over the words before it typed in the same layout; stop at the first that belongs there.
         // Without a dictionary for the source language nothing can be said to belong, so fix only this word.
@@ -64,23 +89,26 @@ enum AutoFix {
             guard !belongsToSource(buffer[word], source: source, target: target, speller: speller) else { break }
             start = word.lowerBound  // takes the short words between this word and the fixed one along
         }
-        return (start..<buffer.count, target)
+        return .fix(range: start..<buffer.count, target: target)
     }
 
     /// The finished word on its own: it reads as a word (or a typo of one) only on the other layout.
-    static func shouldFlip(_ word: ArraySlice<Typed>, from source: KeyLayout, to target: KeyLayout,
-                           speller: Speller) -> Bool {
+    /// Nil when the finished word should go to the other layout; otherwise why not.
+    static func skipReason(_ word: ArraySlice<Typed>, from source: KeyLayout, to target: KeyLayout,
+                           speller: Speller) -> Skip? {
         let typed = word.map(\.text).joined()
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
+        guard looksLikeWord(fixed) else { return .notAWordThere }
         let typedIsWord = !hasLetterKeys(word, on: target) && readsAsWord(typed, language: source.language, speller: speller)
-        guard looksLikeWord(fixed), !typedIsWord else { return false }
-        if speller.isValid(fixed, language: target.language) { return true }
+        guard !typedIsWord else { return .realWordHere }
+        if speller.isValid(fixed, language: target.language) { return nil }
         // Typo: the other language knows a close word, and this language has nothing close to offer. Not when
         // the spell checker takes the typed text as it is ("it's"): then only a real word on the other layout counts.
-        return word.count > minimumLength
+        let typo = word.count > minimumLength
             && !speller.isValid(typed, language: source.language)
             && closeCorrection(fixed, language: target.language, speller: speller)
             && !closeCorrection(typed, language: source.language, speller: speller)
+        return typo ? nil : .notAWordOnOtherLayout
     }
 
     /// A word before the fixed one stays only if it reads right where it was typed and wrong on the other

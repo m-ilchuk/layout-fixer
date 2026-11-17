@@ -55,7 +55,13 @@ final class Fixer {
         UserDefaults.standard.set(id, forKey: "preferredLocal")
     }
 
-    func reset() { buffer.removeAll() }
+    /// What last cleared the typed-keys memory, for the log when a word can't be fixed.
+    private(set) var lastClear = "starting up"
+
+    func reset(_ reason: String) {
+        buffer.removeAll()
+        lastClear = reason
+    }
 
     // MARK: Event tap
 
@@ -76,7 +82,7 @@ final class Fixer {
             return true
         default:
             rightOptionDownAt = nil
-            reset()  // a click moves the caret
+            reset("a click")  // a click moves the caret
             return true
         }
     }
@@ -107,20 +113,20 @@ final class Fixer {
         let flags = event.flags
         let command = flags.contains(.maskCommand) || flags.contains(.maskControl)
         if command || KeyCode.resetting.contains(keyCode) {
-            reset()
+            reset(command ? "a ⌘ or ⌃ shortcut" : "Return, Tab, Esc or an arrow key")
             return true
         }
         if keyCode == KeyCode.delete {
-            if flags.contains(.maskAlternate) { reset() } else if !buffer.isEmpty { buffer.removeLast() }
+            if flags.contains(.maskAlternate) { reset("⌥⌫") } else if !buffer.isEmpty { buffer.removeLast() }
             return true
         }
         guard let layoutID = currentLayoutID, let layout = layouts.layout(id: layoutID) else {
-            reset()
+            reset("typing on a layout Layout Fixer doesn't use")
             return true
         }
         let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
         guard let text = layout.character(for: stroke), text.count == 1 else {
-            reset()
+            reset("a key that types no single character")
             return true
         }
         if text == " " && autoFix && fixWordBeforeSpace() { return false }
@@ -178,7 +184,11 @@ final class Fixer {
 
     /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
     private func fixWordBeforeSpace() -> Bool {
-        guard let (range, target) = AutoFix.fix(buffer: buffer, layouts: layouts) else { return false }
+        let decision = AutoFix.decide(buffer: buffer, layouts: layouts)
+        guard case .fix(let range, let target) = decision else {
+            if case .skip(let reason) = decision { logSkip(reason) }
+            return false
+        }
         let source = buffer.last.flatMap { layouts.layout(id: $0.layoutID) }
         let fixed = Converter.retype(buffer[range], on: target)
         log.info("auto-fix: \(AutoFix.wordRanges(in: Array(self.buffer[range])).count) words")
@@ -188,6 +198,18 @@ final class Fixer {
         buffer.append(Typed(stroke: KeyStroke(keyCode: KeyCode.space, modifiers: 0), layoutID: target.id, text: " "))
         switchLayout(to: target, from: source)
         return true
+    }
+
+    /// Why the word before this Space stays as typed: lengths and layouts only, never the text.
+    private func logSkip(_ reason: AutoFix.Skip) {
+        let detail: String
+        if reason == .noWord {
+            detail = "memory last cleared by \(lastClear)"
+        } else {
+            let word = AutoFix.wordRanges(in: buffer).last.map { buffer[$0] }
+            detail = "\(word?.count ?? 0) keys on \(word?.first?.layoutID ?? "?")"
+        }
+        log.info("auto-fix skipped: \(reason.rawValue, privacy: .public) (\(detail, privacy: .public))")
     }
 
     /// Convert the selected text, paste it over the selection, select it again, switch the layout and restore
@@ -211,7 +233,7 @@ final class Fixer {
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { Selection.reselect(converted, after: selection) }
-            self.reset()
+            self.reset("converting a selection")
             self.switchLayout(to: target, from: self.layouts.other(than: target.id))
             log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -410,13 +432,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private let updater = Updater()
     private lazy var settingsWindow = SettingsWindow(settings: settings, status: { [unowned self] in self.status() },
-                                                     update: { [unowned self] in self.updateFromWindow() })
+                                                     update: { [unowned self] in self.updateFromWindow() },
+                                                     exportLog: { [unowned self] in self.exportDebugLog() })
 
     /// Every on/off setting, in the order the window shows them (the quick menu has only Enabled).
     private lazy var settings: [Setting] = [
         Setting(title: AppDelegate.enabledSettingTitle, isOn: { fixer.enabled }, set: { [unowned self] on in
             fixer.enabled = on
-            fixer.reset()
+            fixer.reset("turning Enabled \(on ? "on" : "off")")
             self.refreshIcon()
         }),
         Setting(title: "Fix automatically while typing (beta)", isOn: { fixer.autoFix }, set: { fixer.autoFix = $0 }),
@@ -441,7 +464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String),
                            object: nil, queue: .main) { _ in fixer.reloadLayouts(); self.changed() }
         NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset() }
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset("switching apps") }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // Click: the settings window. Right-click or ⌥-click: a short menu.
@@ -590,6 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(entry)
         }
         menu.addItem(item("Settings…", action: #selector(showSettings), key: ","))
+        menu.addItem(item("Export Debug Log…", action: #selector(exportDebugLog)))
         menu.addItem(.separator())
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
         // Attach the menu just for this click, so a plain click keeps opening the window.
@@ -623,6 +647,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSettings() { settingsWindow.show() }
+
+    /// What the debug log file starts with: version, Mac, layouts and settings (no typed text).
+    @objc private func exportDebugLog() {
+        let now = status()
+        let settingsLine = settings.map { "\($0.title): \($0.isOn() ? "on" : "off")" }.joined(separator: ", ")
+        let summary = """
+            Version: \(now.version)
+            macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
+            Accessibility: \(now.accessAllowed ? "allowed" : "not allowed")
+            \(Setup.summary(fixer.layouts, speller: SystemSpeller()).joined(separator: "\n"))
+            Settings: \(settingsLine)
+            """
+        DebugLog.export(summary: summary)
+    }
 
     @objc private func checkForUpdates() {
         updater.check { [weak self] status in

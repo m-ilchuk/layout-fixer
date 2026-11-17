@@ -136,6 +136,17 @@ check("auto: the whole phrase", auto("];fr yf `fyre phj,bd cdj' ,helyt lskj", on
 check("auto: English it's stays", auto("it's", on: english), "nil")
 check("auto: English (hello) stays", auto("(hello)", on: english), "nil")
 
+// Why a word was left alone (the log shows the reason).
+func skip(_ text: String, on layout: KeyLayout) -> String {
+    if case .skip(let reason) = AutoFix.decide(buffer: typed(text, on: layout), layouts: ukrainianSet) { return "\(reason)" }
+    return "fixed"
+}
+check("skip: too short", skip("wt", on: english), "tooShort")
+check("skip: a real English word", skip("hello", on: english), "realWordHere")
+check("skip: not a word on Ukrainian either", skip("qxzv", on: english), "notAWordOnOtherLayout")
+check("skip: nothing typed before the space", skip("ghbdsn ", on: english), "noWord")
+check("skip: converts", skip("ghbdsn", on: english), "fixed")
+
 // Short words before an auto-fixed word: "з" is a word in Ukrainian and "p" in English, so on its own it stays.
 check("auto: a short word before the fixed one stays", auto("синхронізацію з Сщтіефте", on: ukrainian), "синхронізацію з Constant")
 check("auto: a short word at the start stays", auto("з Сщтіефте", on: ukrainian), "з Constant")
