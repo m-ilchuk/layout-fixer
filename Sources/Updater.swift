@@ -88,7 +88,7 @@ final class Updater {
 
     private func finish(_ result: Status, _ done: ((Status) -> Void)?) {
         status = result
-        log.info("update check: \(String(describing: result), privacy: .public)")
+        log.notice("update check: \(String(describing: result), privacy: .public)")
         onChange?()
         done?(result)
     }
@@ -127,7 +127,7 @@ final class Updater {
                 alert.runModal()
             }
         }
-        log.info("installing the latest release")
+        log.notice("installing the latest release")
         do {
             try process.run()
             progressTimer = Timer.scheduledTimer(withTimeInterval: Updater.progressInterval, repeats: true) { [weak self] _ in
@@ -160,7 +160,7 @@ final class Updater {
 
     /// Open the freshly installed copy once this one has quit.
     private static func relaunch() {
-        log.info("update installed; restarting")
+        log.notice("update installed; restarting")
         let opener = Process()
         opener.executableURL = URL(fileURLWithPath: "/bin/sh")
         opener.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]

@@ -235,7 +235,8 @@ final class SimulatedMac {
         self.staleEventText = staleEventText
         self.lateAfterOwnSwitch = lateAfterOwnSwitch
         self.screenReadable = screenReadable
-        session = TypingSession(layouts: layouts, currentLayoutID: startOn.id)
+        let clock = clock
+        session = TypingSession(layouts: layouts, currentLayoutID: startOn.id, now: { clock.now })
         session.autoFix = true
     }
 
@@ -262,7 +263,13 @@ final class SimulatedMac {
         }
     }
 
+    /// A person types about ten keys a second.
+    final class Clock { var now = Date(timeIntervalSince1970: 0) }
+    let clock = Clock()
+    static let secondsPerKey: TimeInterval = 0.1
+
     private func press(_ stroke: KeyStroke) {
+        clock.now = clock.now.addingTimeInterval(SimulatedMac.secondsPerKey)
         let char = actual.character(for: stroke)!
         let reportedID: String
         if lagLeft > 0 { reportedID = reported.id; lagLeft -= 1 } else { reported = actual; reportedID = actual.id }
@@ -367,6 +374,17 @@ for condition in chainConditions {
     mac.type([("світ", ukrainian), ("hello", english)])
     check("chain, \(condition.name): own switch to English, then світ typed on it", mac.screen, "привіт світ hello ")
 }
+
+// Tested on a real Mac: switched to English mid-sentence, then "що робиш" typed on it.
+for condition in chainConditions {
+    let mac = condition.mac(ukrainianSet, startOn: ukrainian)
+    mac.type([("привіт", ukrainian), ("як", ukrainian), ("справи", ukrainian)])
+    mac.personSwitches(to: english, notice: false)
+    mac.type([("що", ukrainian), ("робиш", ukrainian), ("сьогодні", ukrainian)])
+    check("chain, \(condition.name): що робиш typed on English after a switch", mac.screen, "привіт як справи що робиш сьогодні ")
+}
+chain("як справи що робиш (never switches, from English)", startOn: english,
+      [("як", ukrainian), ("справи", ukrainian), ("що", ukrainian), ("робиш", ukrainian)], expect: "як справи що робиш")
 
 // The person switches the layout themselves: what they type on it stays, with or without macOS's notice.
 for notice in [true, false] {

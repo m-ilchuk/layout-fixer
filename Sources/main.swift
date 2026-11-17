@@ -3,7 +3,8 @@ import Carbon
 import ServiceManagement
 import os
 
-// Diagnostics only: counts and lengths, never what was typed.
+// Diagnostics only: counts and lengths, never what was typed. At "notice" level, which macOS keeps on disk, so
+// Export Debug Log… has the whole day (info-level messages are kept only briefly, in memory).
 // Read with: log stream --predicate 'subsystem == "io.github.m-ilchuk.layoutfixer"'
 let log = Logger(subsystem: "io.github.m-ilchuk.layoutfixer", category: "fixer")
 
@@ -28,7 +29,7 @@ enum KeyCode {
 final class Fixer {
     /// The typing itself (memory, layouts, fix-while-typing), apart from macOS so tests can drive it.
     let session = TypingSession(layouts: LayoutSet(layouts: []), currentLayoutID: nil,
-                                log: { message in log.info("\(message, privacy: .public)") })
+                                log: { message in log.notice("\(message, privacy: .public)") })
     /// Right ⌥ was tapped: convert the selection once the key is up.
     var pending = false
     private var lastConversion = LastConversion()
@@ -93,7 +94,7 @@ final class Fixer {
         } else if held.isEmpty, let downAt = rightOptionDownAt {
             rightOptionDownAt = nil
             guard Date().timeIntervalSince(downAt) < rightOptionTapSeconds else { return }
-            log.info("hotkey: right option tap")
+            log.notice("hotkey: right option tap")
             pending = true
         } else {
             rightOptionDownAt = nil
@@ -103,7 +104,7 @@ final class Fixer {
     private var loggedFirstKey = false
 
     private func handleKeyDown(_ event: CGEvent) -> Bool {
-        if !loggedFirstKey { loggedFirstKey = true; log.info("receiving key presses") }
+        if !loggedFirstKey { loggedFirstKey = true; log.notice("receiving key presses") }
         rightOptionDownAt = nil
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
@@ -156,24 +157,24 @@ final class Fixer {
     /// Another tap converts it back.
     private func convertSelection() {
         guard !convertingSelection else {
-            log.info("tap ignored: the last conversion is still pasting")
+            log.notice("tap ignored: the last conversion is still pasting")
             return
         }
         let selection = Selection.current()
         if let selection, !selection.text.isEmpty {
-            log.info("selection via accessibility: \(selection.text.count) chars")
+            log.notice("selection via accessibility: \(selection.text.count) chars")
             return fixSelection(selection)
         }
         if session.hasTypedWord {
-            log.info("no selection; converting the last word")
+            log.notice("no selection; converting the last word")
             guard let edit = session.convertLastWord() else { return NSSound.beep() }
             return apply(edit)
         }
         guard selection == nil else {
-            log.info("nothing selected, nothing typed")
+            log.notice("nothing selected, nothing typed")
             return NSSound.beep()
         }
-        log.info("the app doesn't share its selection; copying it")
+        log.notice("the app doesn't share its selection; copying it")
         fixSelection(nil)
     }
 
@@ -186,7 +187,7 @@ final class Fixer {
         let replace: (String?) -> Void = { [weak self] text in
             guard let self else { return }
             guard let text, let (converted, target) = self.conversion(of: text) else {
-                log.info("nothing to convert (copied: \(text?.count ?? -1) chars)")
+                log.notice("nothing to convert (copied: \(text?.count ?? -1) chars)")
                 Clipboard.restore(saved, to: pasteboard)
                 self.convertingSelection = false
                 NSSound.beep()
@@ -202,7 +203,7 @@ final class Fixer {
             target.select()
             self.session.appSwitched(to: target.id)
             Flash.shared.show(from: source, to: target)
-            log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
+            log.notice("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 Clipboard.restore(saved, to: pasteboard)
                 self.convertingSelection = false
@@ -514,7 +515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let trusted = AXIsProcessTrusted()
         let listen = CGPreflightListenEventAccess()
-        log.info("access: accessibility=\(trusted) inputMonitoring=\(listen)")
+        log.notice("access: accessibility=\(trusted) inputMonitoring=\(listen)")
         // A tap made before Accessibility is granted gets no key presses even after it is granted, so wait for it.
         // A tap that can change keys needs only Accessibility; Input Monitoring is for listen-only taps.
         waitingForAccess = !trusted
@@ -538,7 +539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        log.info("listening for keys")
+        log.notice("listening for keys")
         refreshIcon()
         settingsWindow.refresh()
     }

@@ -5,6 +5,8 @@ struct Typed {
     let stroke: KeyStroke
     let layoutID: String
     let text: String
+    /// When the key was pressed (set by the typing session; nil for keys it retyped).
+    var at: Date? = nil
 
     /// A space or a non-breaking space (⌥Space) separates words.
     var isSpace: Bool { text == " " || text == "\u{00A0}" }

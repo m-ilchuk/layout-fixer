@@ -17,6 +17,9 @@ final class TypingSession {
     static let maxRemembered = 300
     /// Right after the app switches the layout itself, macOS can still report the old one for a moment.
     static let switchGraceSeconds: TimeInterval = 1
+    /// How far back keys are re-read when macOS reports a switch it didn't announce: about how late its report
+    /// was seen to be after a person's own switch (a few keys).
+    static let lateReportSeconds: TimeInterval = 0.6
     static let spaceKey = KeyStroke(keyCode: 49, modifiers: 0)
 
     private(set) var layouts: LayoutSet
@@ -102,7 +105,7 @@ final class TypingSession {
                 reset("the app changing the text")
             }
         }
-        buffer.append(Typed(stroke: stroke, layoutID: layout.id, text: text))
+        buffer.append(Typed(stroke: stroke, layoutID: layout.id, text: text, at: now()))
         if buffer.count > TypingSession.maxRemembered { buffer.removeFirst(buffer.count - TypingSession.maxRemembered) }
         return nil
     }
@@ -130,6 +133,7 @@ final class TypingSession {
         let justSwitched = switchedAt.map { now().timeIntervalSince($0) < TypingSession.switchGraceSeconds } ?? false
         if reported != currentLayoutID && !(justSwitched && reported == switchedFrom) {
             log("layout changed without a notice: \(currentLayoutID ?? "none") → \(reported ?? "none")")
+            rereadRecentKeys(on: reported)
             layoutChanged(to: reported)
         }
         return currentLayoutID.flatMap { layouts.layout(id: $0) }
@@ -164,6 +168,21 @@ final class TypingSession {
         buffer.replaceSubrange(range, with: Converter.retype(buffer[range], on: layout))
         log("word of \(range.count) keys was really typed on \(layout.id) (by \(reason))")
         if currentLayoutID != layout.id { layoutChanged(to: layout.id) }
+    }
+
+    /// macOS reports a switch it didn't announce, late: the keys typed just before were most likely already on
+    /// the new layout ("що" typed on English after switching shows as "oj"). They're re-read on it. A key that
+    /// really was on the old layout, re-read, converts back to what's on screen, so nothing visible goes wrong.
+    private func rereadRecentKeys(on reportedID: String?) {
+        guard let reportedID, let layout = layouts.layout(id: reportedID) else { return }
+        let since = now().addingTimeInterval(-TypingSession.lateReportSeconds)
+        var index = buffer.count
+        while index > 0, let at = buffer[index - 1].at, at >= since { index -= 1 }
+        guard index < buffer.count else { return }
+        let reread = Converter.retype(buffer[index...], on: layout)
+        guard zip(reread, buffer[index...]).contains(where: { $0.layoutID != $1.layoutID }) else { return }
+        buffer.replaceSubrange(index..., with: reread)
+        log("re-read the last \(reread.count) keys on \(layout.id) (macOS reported the switch late)")
     }
 
     /// Fix-while-typing: on Space, the word just finished (and the words before it on the same wrong layout).

@@ -14,6 +14,11 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
   apps that don't, a word on two layouts goes by its last key.
 - When the screen doesn't show the keys you typed (an app closed a bracket, made a quote curly or autocorrected),
   the word is left alone instead of erasing the wrong characters.
+- A short word typed right after you switch the layout is fixed too (`як справи oj робиш` → `що робиш`): when
+  macOS reports a switch late, the keys typed just before it are read again on the new layout. `що` and a few
+  other short Ukrainian words were missing from its list.
+- **Export Debug Log…** keeps the whole day: Layout Fixer's log lines are now kept on disk by macOS, not only
+  briefly in memory.
 
 ## 0.2.6 — 2026-11-17
 
