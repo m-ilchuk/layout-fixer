@@ -7,6 +7,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+## 0.2.7 — 2026-11-17
+
 ### Fixes
 - Fix while typing checks the screen before fixing a word: right after you switch the layout, macOS can still report
   the old one for a few keys, so a word was recorded half on each layout and left alone ("sometimes works,
