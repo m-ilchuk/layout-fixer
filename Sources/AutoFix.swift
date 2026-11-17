@@ -69,7 +69,7 @@ enum AutoFix {
                            speller: Speller) -> Bool {
         let typed = word.map(\.text).joined()
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
-        guard looksLikeWord(fixed), !speller.isValid(typed, language: source.language) else { return false }
+        guard looksLikeWord(fixed), !readsAsWord(typed, language: source.language, speller: speller) else { return false }
         if speller.isValid(fixed, language: target.language) { return true }
         // Typo: the other language knows a close word, and this language has nothing close to offer.
         return word.count > minimumLength
@@ -83,12 +83,19 @@ enum AutoFix {
                                         speller: Speller) -> Bool {
         let typed = word.map(\.text).joined()
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
-        let readsAsSource = speller.isValid(typed, language: source.language)
-            || closeCorrection(typed, language: source.language, speller: speller)
+        let readsAsSource = looksLikeWord(typed)
+            && (speller.isValid(typed, language: source.language)
+                || closeCorrection(typed, language: source.language, speller: speller))
         let readsAsTarget = looksLikeWord(fixed)
             && (speller.isValid(fixed, language: target.language)
                 || closeCorrection(fixed, language: target.language, speller: speller))
         return readsAsSource && !readsAsTarget
+    }
+
+    /// A real word as typed. The spell checker skips punctuation, so "k.,k." ("люблю" typed on English) would pass
+    /// as two k's: a word with punctuation inside it isn't one.
+    private static func readsAsWord(_ word: String, language: String, speller: Speller) -> Bool {
+        looksLikeWord(word) && speller.isValid(word, language: language)
     }
 
     private static func closeCorrection(_ word: String, language: String, speller: Speller) -> Bool {

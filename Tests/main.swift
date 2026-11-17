@@ -126,6 +126,15 @@ check("auto leaves an earlier switch alone", auto("hello ghbdsn", on: english), 
 check("auto fixes en→ru", auto("ghbdtn", on: russianSet.english!, in: russianSet), "привет")
 check("auto keeps a real Russian word", auto("привет", on: russianSet.local!, in: russianSet), "nil")
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
+// Fix-while-typing converts punctuation by key too.
+check("auto: , typed for ? (uk→en)", auto("руддщ,", on: ukrainian), "hello?")
+check("auto: phrase ending in ? (uk→en)", auto("рщц фку нщг,", on: ukrainian), "how are you?")
+check("auto: / typed for . (en→uk)", auto("ghbdsn/", on: english), "привіт.")
+check("auto: ? typed for , (en→uk)", auto("ghbdsn?", on: english), "привіт,")
+check("auto: punctuation keys that are letters (en→uk)", auto("k.,k.", on: english), "люблю")
+check("auto: б and ю keys inside a word (en→uk)", auto("lj,hjuj", on: english), "доброго")
+check("auto: a real English word with a comma stays", auto("hello,", on: english), "nil")
+check("auto: a real Ukrainian word with a comma stays", auto("привіт,", on: ukrainian), "nil")
 check("edit distance", String(AutoFix.editDistance("everone", "everyone")), "1")
 
 // Every key, plain, ⇧, ⌥ and ⇧⌥, both ways: selected text converts to what the same key types on the other
