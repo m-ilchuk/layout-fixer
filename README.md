@@ -28,8 +28,13 @@ Needs macOS 13 or newer, on Apple silicon or Intel.
 
 ## Use
 
-**Select the text and tap the right ⌥ key** (on its own). It is converted to the other layout, stays selected, and
-the keyboard layout switches with it. Tap again to convert it back exactly as it was.
+**Tap the right ⌥ key** (on its own):
+
+- **Text selected:** it is converted to the other layout and stays selected. Tap again to convert it back exactly
+  as it was.
+- **Nothing selected:** the last word you typed is converted. Tap again to flip it back.
+
+The keyboard layout switches with it.
 
 Apps that don't share their selection with macOS (some browsers) get it copied and pasted instead; your clipboard
 is put back afterwards.

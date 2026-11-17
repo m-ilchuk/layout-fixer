@@ -11,6 +11,15 @@ struct Typed {
 }
 
 enum Converter {
+    /// The last word typed, with any spaces after it.
+    static func lastWord(of buffer: [Typed]) -> Range<Int>? {
+        var index = buffer.count - 1
+        while index >= 0 && buffer[index].isSpace { index -= 1 }
+        guard index >= 0 else { return nil }
+        while index >= 0 && !buffer[index].isSpace { index -= 1 }
+        return (index + 1)..<buffer.count
+    }
+
     /// The same key presses, replayed on the target layout. Spaces stay spaces.
     static func retype(_ segment: ArraySlice<Typed>, on target: KeyLayout) -> [Typed] {
         segment.map { typed in

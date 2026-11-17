@@ -61,6 +61,6 @@ MSG
 fi
 cat <<'MSG'
 
-Then select wrongly typed text and tap the right ⌥ key on its own (tap again to convert it back).
+Then tap the right ⌥ key on its own: it converts the selected text, or the last word you typed.
 Menu bar item › Open at login starts it with your Mac.
 MSG

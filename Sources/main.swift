@@ -136,18 +136,37 @@ final class Fixer {
 
     // MARK: Fixing
 
-    /// Right ⌥: convert the selected text to the other layout and leave it selected, so another tap converts it back.
+    /// Right ⌥: the selected text, or with nothing selected the last word typed, goes to the other layout.
+    /// Another tap converts it back.
     private func convertSelection() {
-        guard let selection = Selection.current() else {
-            log.info("the app doesn't share its selection; copying it")
-            return fixSelection(nil)
+        let selection = Selection.current()
+        if let selection, !selection.text.isEmpty {
+            log.info("selection via accessibility: \(selection.text.count) chars")
+            return fixSelection(selection)
         }
-        guard !selection.text.isEmpty else {
-            log.info("nothing selected")
+        if buffer.contains(where: { !$0.isSpace }) {
+            log.info("no selection; converting the last word")
+            return fixLastWord()
+        }
+        guard selection == nil else {
+            log.info("nothing selected, nothing typed")
             return NSSound.beep()
         }
-        log.info("selection via accessibility: \(selection.text.count) chars")
-        fixSelection(selection)
+        log.info("the app doesn't share its selection; copying it")
+        fixSelection(nil)
+    }
+
+    /// Erase the last word typed and type the same keys on the other layout.
+    private func fixLastWord() {
+        guard let range = Converter.lastWord(of: buffer),
+              let typedOn = buffer[range].last(where: { !$0.isSpace })?.layoutID,
+              let source = layouts.layout(id: typedOn), let target = layouts.other(than: typedOn)
+        else { return NSSound.beep() }
+        let fixed = Converter.retype(buffer[range], on: target)
+        Typist.erase(count: range.count)
+        Typist.type(fixed.map(\.text).joined())
+        buffer.replaceSubrange(range, with: fixed)
+        switchLayout(to: target, from: source)
     }
 
     /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
@@ -479,7 +498,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(info(Setup.pairLine(fixer.layouts)))
         menu.addItem(.separator())
-        menu.addItem(info("Select text, tap right ⌥: convert it"))
+        menu.addItem(info("Tap right ⌥: convert the selected text,"))
+        menu.addItem(info("    or the last word you typed"))
         menu.addItem(info("Tap again: convert it back"))
         menu.addItem(.separator())
         menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))

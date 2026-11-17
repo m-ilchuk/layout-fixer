@@ -52,6 +52,20 @@ check("flip twice returns", retype(typed(retype(typed("ghbdsn", on: english))!, 
 let optionSpace = Typed(stroke: KeyStroke(keyCode: 49, modifiers: KeyStroke.option), layoutID: english.id, text: "\u{00A0}")
 check("⌥Space (non-breaking space) stays", retype(typed("ghbdsn", on: english) + [optionSpace] + typed("wt", on: english)), "привіт\u{00A0}це")
 
+// Nothing selected: the last word typed (with the spaces after it) goes to the other layout.
+func lastWord(_ buffer: [Typed]) -> String? {
+    guard let range = Converter.lastWord(of: buffer),
+          let typedOn = buffer[range].last(where: { !$0.isSpace })?.layoutID,
+          let target = ukrainianSet.other(than: typedOn) else { return nil }
+    var out = buffer
+    out.replaceSubrange(range, with: Converter.retype(buffer[range], on: target))
+    return out.map(\.text).joined()
+}
+check("last word only", lastWord(typed("я люблю ізщешан", on: ukrainian)), "я люблю spotify")
+check("last word with trailing space", lastWord(typed("ghbdsn ", on: english)), "привіт ")
+check("last word flips back", lastWord(typed("привіт", on: ukrainian)), "ghbdsn")
+check("nothing typed", lastWord(typed("   ", on: english)), "nil")
+
 // Selection back and forth, the way the app does it: the second tap undoes the first exactly.
 func backAndForth(_ text: String) -> String? {
     var memory = LastConversion()
