@@ -7,6 +7,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+## 0.2.6 — 2026-11-17
+
 ### Fixes
 - Fix while typing no longer trusts the character inside the key event to tell the layout: right after it switched
   the layout itself, that character could stay on the old layout for whole words, so `ghjqikf` after `Stripe`, or the
