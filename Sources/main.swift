@@ -464,6 +464,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if firstLaunch || !AXIsProcessTrusted() { settingsWindow.show() }
     }
 
+    /// `--settings-snapshot file.png --progress 0.42`: draw the window as it looks while an update installs.
+    var snapshotProgress: UpdateProgress.State?
+
     func settingsSnapshot(to url: URL) throws {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         try settingsWindow.snapshot(to: url)
@@ -492,7 +495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return SettingsStatus(accessAllowed: AXIsProcessTrusted(), pair: Setup.pairLine(fixer.layouts),
                               version: "\(Updater.currentVersion?.description ?? "?")\(commit)",
-                              updateTitle: update.0, updateEnabled: update.1)
+                              updateTitle: update.0, updateEnabled: update.1,
+                              progress: snapshotProgress ?? updater.progress)
     }
 
     private func updateFromWindow() {
@@ -635,14 +639,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !updater.installing, case .available(let release) = updater.status else { return }
         let alert = NSAlert()
         alert.messageText = "Install Layout Fixer \(release.version)?"
-        alert.informativeText = "It builds on this Mac (about a minute) and restarts by itself, "
-            + "keeping its Accessibility permission."
+        alert.informativeText = "It builds on this Mac and restarts by itself, keeping its Accessibility permission. "
+            + "The Layout Fixer window shows how far it is."
         if !release.notes.isEmpty { alert.accessoryView = ReleaseNotesView.make(release.notes) }
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         updater.install()
+        settingsWindow.show()
     }
 
     private func tell(_ title: String, _ detail: String) {
@@ -680,6 +685,10 @@ let delegate = AppDelegate()
 // `LayoutFixer --settings-snapshot file.png`: render the settings window to an image (README) and exit.
 if let flag = CommandLine.arguments.firstIndex(of: "--settings-snapshot"), flag + 1 < CommandLine.arguments.count {
     fixer.reloadLayouts()
+    if let index = CommandLine.arguments.firstIndex(of: "--progress"), index + 1 < CommandLine.arguments.count,
+       let fraction = Double(CommandLine.arguments[index + 1]) {
+        delegate.snapshotProgress = UpdateProgress.State(fraction: fraction, step: "Compiling for Apple silicon and Intel…")
+    }
     do { try delegate.settingsSnapshot(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) } catch {
         print("could not write the snapshot: \(error.localizedDescription)")
         exit(1)

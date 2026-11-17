@@ -49,12 +49,17 @@ BUILD=$!
 START=$SECONDS
 SPINNER='-\|/'
 TICK=0
-# One updating line: the build's latest step ("==> Compiling …") and the seconds so far.
+# In a terminal, one updating line: the build's latest step ("==> Compiling …") and the seconds so far.
+# Otherwise (the app updating itself reads this output for its progress bar), each new step as a line.
+LAST_STEP=""
 while kill -0 "$BUILD" 2>/dev/null; do
+  STEP=$(grep '^==> ' "$LOG" 2>/dev/null | tail -1 | cut -c5- || true)  # no step yet is fine
   if [[ -t 1 ]]; then
-    STEP=$(grep '^==> ' "$LOG" 2>/dev/null | tail -1 | cut -c5- || true)  # no step yet is fine
     printf '\r  %s %s… %ds   ' "${SPINNER:TICK++%4:1}" "${STEP:-Building}" $((SECONDS - START))
+  elif [[ -n "$STEP" && "$STEP" != "$LAST_STEP" ]]; then
+    echo "==> $STEP"
   fi
+  LAST_STEP="$STEP"
   sleep 0.25
 done
 if ! wait "$BUILD"; then

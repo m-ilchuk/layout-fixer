@@ -15,6 +15,8 @@ struct SettingsStatus {
     /// "Check for Updates…", "Install version 0.2.0…" or "Updating…" (then disabled).
     let updateTitle: String
     let updateEnabled: Bool
+    /// While an update installs: how far it is.
+    let progress: UpdateProgress.State?
 }
 
 /// The Layout Fixer window: opens when the app is opened again (Spotlight, Finder) and on a first launch, so
@@ -33,6 +35,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private let pairLabel = NSTextField(labelWithString: "")
     private let versionLabel = NSTextField(labelWithString: "")
     private let updateButton = NSButton(title: "", target: nil, action: nil)
+    private let progressBar = NSProgressIndicator()
+    private let progressLabel = NSTextField(labelWithString: "")
+    private lazy var progressRow = NSStackView(views: [progressBar, progressLabel])
     private var checkboxes: [NSButton] = []
     private var refreshTimer: Timer?
 
@@ -71,6 +76,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         versionLabel.stringValue = now.version
         updateButton.title = now.updateTitle
         updateButton.isEnabled = now.updateEnabled
+        progressRow.isHidden = now.progress == nil
+        if let progress = now.progress {
+            progressBar.doubleValue = progress.fraction
+            progressLabel.stringValue = "\(progress.step) \(progress.percent)%"
+        }
         for (checkbox, setting) in zip(checkboxes, settings) { checkbox.state = setting.isOn() ? .on : .off }
     }
 
@@ -159,6 +169,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         updateButton.bezelStyle = .rounded
         let quit = NSButton(title: "Quit Layout Fixer", target: NSApp, action: #selector(NSApplication.terminate(_:)))
         quit.bezelStyle = .rounded
+        progressBar.style = .bar
+        progressBar.isIndeterminate = false
+        progressBar.minValue = 0
+        progressBar.maxValue = 1
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        progressBar.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        progressLabel.textColor = .secondaryLabelColor
+        progressLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        progressRow.orientation = .horizontal
+        progressRow.spacing = 10
+        progressRow.isHidden = true
 
         let stack = NSStackView(views: [heading,
                                         accessLabel, accessHelp, accessButton,
@@ -166,7 +187,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                                         usage, pairLabel,
                                         separator()]
                                        + checkboxes
-                                       + [separator(), notch, row([updateButton, quit])])
+                                       + [separator(), notch, row([updateButton, quit]), progressRow])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10

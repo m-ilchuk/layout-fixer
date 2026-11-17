@@ -39,6 +39,17 @@ final class Updater {
     private(set) var status: Status = .unknown
     /// An install is running (about a minute): the menu says so and another click does nothing.
     private(set) var installing = false
+    /// Where the running install is, for the window's progress bar.
+    private(set) var progress: UpdateProgress.State?
+    private var progressTimer: Timer?
+    private var compileStarted: Date?
+    static let progressInterval: TimeInterval = 0.5
+    static let defaultCompileSeconds: TimeInterval = 45
+    /// How long compiling took last time on this Mac ("Built in 41s"), so the bar moves at the right pace.
+    private var expectedCompile: TimeInterval {
+        let last = UserDefaults.standard.double(forKey: "lastBuildSeconds")
+        return last > 0 ? last : Updater.defaultCompileSeconds
+    }
     var onChange: (() -> Void)?
     private var timer: Timer?
 
@@ -86,6 +97,8 @@ final class Updater {
     func install() {
         guard !installing else { return }
         installing = true
+        compileStarted = nil
+        progress = UpdateProgress.state(log: "", compilingFor: 0, expectedCompile: expectedCompile)
         onChange?()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -105,6 +118,7 @@ final class Updater {
             }
             DispatchQueue.main.async {
                 self.installing = false
+                self.stopProgress()
                 self.onChange?()
                 let alert = NSAlert()
                 alert.messageText = "The update didn't install"
@@ -114,11 +128,34 @@ final class Updater {
             }
         }
         log.info("installing the latest release")
-        do { try process.run() } catch {
+        do {
+            try process.run()
+            progressTimer = Timer.scheduledTimer(withTimeInterval: Updater.progressInterval, repeats: true) { [weak self] _ in
+                self?.readProgress()
+            }
+        } catch {
             log.error("could not start the installer: \(error.localizedDescription, privacy: .public)")
             installing = false
+            stopProgress()
             onChange?()
         }
+    }
+
+    private func readProgress() {
+        let output = (try? String(contentsOf: Updater.logURL, encoding: .utf8)) ?? ""
+        if compileStarted == nil && UpdateProgress.isCompiling(log: output) { compileStarted = Date() }
+        let compiling = compileStarted.map { Date().timeIntervalSince($0) } ?? 0
+        progress = UpdateProgress.state(log: output, compilingFor: compiling, expectedCompile: expectedCompile)
+        if let built = UpdateProgress.builtSeconds(log: output) {
+            UserDefaults.standard.set(Double(built), forKey: "lastBuildSeconds")
+        }
+        onChange?()
+    }
+
+    private func stopProgress() {
+        progressTimer?.invalidate()
+        progressTimer = nil
+        progress = nil
     }
 
     /// Open the freshly installed copy once this one has quit.
