@@ -2,7 +2,7 @@ import AppKit
 import Carbon
 
 // End-to-end: types corpus sentences into TextEdit with real key events while the real Layout Fixer runs, and
-// checks what TextEdit shows. It covers what the simulated Mac only models: macOS's layout reports, the text in key
+// checks what TextEdit shows: one document per scenario, a line per sentence, and a report in build/e2e-report.txt. It covers what the simulated Mac only models: macOS's layout reports, the text in key
 // events, switch timing, and what the app really receives. Run it with ./e2e.sh (README: "End-to-end test").
 //
 //   ./e2e.sh               a sample of each kind of sentence, every scenario
@@ -71,56 +71,66 @@ enum Scenario: String, CaseIterable {
     case neverSwitchesFromUkrainian = "never switches, starts on Ukrainian"
 }
 
-/// Types the sentence into a new TextEdit document and returns what the document shows.
-func type(_ sentence: String, _ scenario: Scenario) -> String {
+/// Types every sentence of a scenario into one new TextEdit document, a line each (Return clears Layout Fixer's
+/// memory between lines, like separate messages), and returns the document's lines.
+func typeScenario(_ sentences: [String], _ scenario: Scenario) -> [String] {
     _ = run("""
         tell application "TextEdit"
             activate
             make new document
         end tell
         """)
-    usleep(500_000)
-    let words = sentence.split(separator: " ").map(String.init)
-    let start: KeyLayout
-    switch scenario {
-    case .switchesCorrectly: start = words.compactMap(meantLayout).first ?? english
-    case .neverSwitchesFromEnglish: start = english
-    case .neverSwitchesFromUkrainian: start = ukrainian
-    }
-    start.select()
-    usleep(300_000)
-    for word in words {
-        let meant = meantLayout(word) ?? currentLayout()
-        if scenario == .switchesCorrectly, meantLayout(word) != nil, currentLayout().id != meant.id {
-            meant.select()
-            usleep(200_000)
+    usleep(800_000)
+    for sentence in sentences {
+        let words = sentence.split(separator: " ").map(String.init)
+        let start: KeyLayout
+        switch scenario {
+        case .switchesCorrectly: start = words.compactMap(meantLayout).first ?? english
+        case .neverSwitchesFromEnglish: start = english
+        case .neverSwitchesFromUkrainian: start = ukrainian
         }
-        for char in word { press(meant.strokeForCharacter[char]!) }
-        press(KeyStroke(keyCode: 49, modifiers: 0))
+        start.select()
+        usleep(300_000)
+        for word in words {
+            let meant = meantLayout(word) ?? currentLayout()
+            if scenario == .switchesCorrectly, meantLayout(word) != nil, currentLayout().id != meant.id {
+                meant.select()
+                usleep(200_000)
+            }
+            for char in word { press(meant.strokeForCharacter[char]!) }
+            press(KeyStroke(keyCode: 49, modifiers: 0))
+            usleep(afterSpaceDelay)
+        }
+        press(KeyStroke(keyCode: 36, modifiers: 0))  // Return: next line
         usleep(afterSpaceDelay)
     }
     usleep(settle)
     let text = run("tell application \"TextEdit\" to get text of front document") ?? ""
-    _ = run("tell application \"TextEdit\" to close front document saving no")
-    return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
 }
 
 let everything = CommandLine.arguments.contains("all")
 let sentences = everything ? Corpus.all
     : Array(Corpus.ukrainian.prefix(8)) + Array(Corpus.english.prefix(6)) + Array(Corpus.mixed.prefix(10))
-print("e2e: \(sentences.count) sentences × \(Scenario.allCases.count) scenarios. Don't touch the keyboard or mouse.")
-var failed = 0
+let reportURL = URL(fileURLWithPath: "build/e2e-report.txt")
+print("e2e: \(sentences.count) sentences × \(Scenario.allCases.count) scenarios, one TextEdit document each.")
+print("e2e: don't touch the keyboard or mouse until it says it's done.")
+var report = ["Layout Fixer end-to-end test, \(Date())", ""]
+var misses = 0
 for scenario in Scenario.allCases {
+    let lines = typeScenario(sentences, scenario)
     var right = 0
-    for sentence in sentences {
-        let shown = type(sentence, scenario)
-        if shown == sentence {
-            right += 1
-        } else {
-            print("  MISS  \(scenario.rawValue)\n        got:  \(shown)\n        want: \(sentence)")
-        }
+    var details: [String] = []
+    for (index, sentence) in sentences.enumerated() {
+        let shown = index < lines.count ? lines[index] : "(no line)"
+        if shown == sentence { right += 1 } else { details.append("  MISS\n    got:  \(shown)\n    want: \(sentence)") }
     }
-    failed += sentences.count - right
-    print("e2e: \(right)/\(sentences.count)  \(scenario.rawValue)")
+    misses += sentences.count - right
+    let summary = "\(right)/\(sentences.count)  \(scenario.rawValue)"
+    print("e2e: " + summary)
+    details.forEach { print($0) }
+    report += [summary] + details + [""]
 }
-exit(failed == 0 ? 0 : 1)
+try? report.joined(separator: "\n").write(to: reportURL, atomically: true, encoding: .utf8)
+print("e2e: done. The documents stay open in TextEdit; the report is in \(reportURL.path).")
+exit(misses == 0 ? 0 : 1)

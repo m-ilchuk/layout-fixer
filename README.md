@@ -169,7 +169,9 @@ LAYOUT_FIXER_UNIVERSAL=1 ./build.sh   # one app for Apple silicon and Intel, to 
   words no dictionary knows (`Jira`, `Datadog`, `hotfix`, `CI`, slang), which a right ⌥ tap fixes.
 
 `./e2e.sh` is the end-to-end test: it types corpus sentences into TextEdit with real key presses while the real
-Layout Fixer runs, and checks what TextEdit shows (`./e2e.sh all` for every sentence). It needs Accessibility for
+Layout Fixer runs, one document per scenario and a line per sentence, and checks what TextEdit shows
+(`./e2e.sh all` for every sentence). The documents stay open, and the scores and misses go to
+`build/e2e-report.txt`. Run it from Terminal.app. It needs Accessibility for
 Terminal, asks once to control TextEdit, and takes over the keyboard for a few minutes.
 
 ### Keep permissions across rebuilds
