@@ -114,11 +114,14 @@ enum Scenario: String, CaseIterable {
 
 /// Types every sentence of a scenario into one new TextEdit document, a line each (Return clears Layout Fixer's
 /// memory between lines, like separate messages), and returns the document's lines.
+/// The previous scenario's document is closed only once this one is open: macOS ends TextEdit on its own when its
+/// last window closes, and the next AppleScript call would then fail with "Connection is invalid".
 func typeScenario(_ sentences: [String], _ scenario: Scenario) -> [String] {
     _ = run("""
         tell application "TextEdit"
             activate
             make new document
+            if (count of documents) > 1 then close (documents 2 thru -1) saving no
         end tell
         """)
     usleep(800_000)
@@ -147,7 +150,6 @@ func typeScenario(_ sentences: [String], _ scenario: Scenario) -> [String] {
     }
     usleep(settle)
     let text = run("tell application \"TextEdit\" to get text of front document") ?? ""
-    _ = run("tell application \"TextEdit\" to close front document saving no")
     return text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
 }
 
