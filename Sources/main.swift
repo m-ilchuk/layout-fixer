@@ -128,7 +128,7 @@ final class Fixer {
     private func apply(_ edit: TypingSession.Edit) {
         Typist.erase(count: edit.erase)
         Typist.type(edit.text)
-        edit.target.select()
+        if edit.switches { edit.target.select() }
         Flash.shared.show(from: edit.source, to: edit.target)
     }
 

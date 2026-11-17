@@ -14,6 +14,11 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 - Short words at the start of a line are fixed along with the next word when they're only a word on the other layout:
   `Z просто` → `Я просто`, `Ш фь just` → `I am just`, `Nb зробив` → `Ти зробив`. Real short words stay
   (`синхронізацію з Constant`).
+- Fix while typing no longer changes correct words when it fixes the one after them: an English word with a comma
+  (`staging,`), a name no dictionary knows (`Jira`), or a word it fixed a moment before (`для` turning into `lkz`).
+- Short words in a sentence mostly in the other language are fixed too: `login yf mobile` → `login на mobile`,
+  `export e CSV` → `export у CSV`. In an English message, `db` or `f` stays.
+- Checked against about 100 everyday sentences in Ukrainian, English and mixed, typed with and without switching.
 
 ## 0.2.5 — 2026-11-17
 

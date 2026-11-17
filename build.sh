@@ -13,7 +13,7 @@ MODULE_CACHE="${LAYOUT_FIXER_MODULE_CACHE:-build/module-cache}"
 SWIFTC=(swiftc -O -module-cache-path "$MODULE_CACHE")
 
 if [[ "${1:-}" == "--test" ]]; then
-  "${SWIFTC[@]}" "${CORE[@]}" Tests/main.swift -o build/tests
+  "${SWIFTC[@]}" "${CORE[@]}" Tests/Corpus.swift Tests/main.swift -o build/tests
   exec build/tests
 fi
 

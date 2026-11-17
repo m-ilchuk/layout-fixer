@@ -38,8 +38,11 @@ struct SystemSpeller: Speller {
 /// "hey everone how" and not "рун умукщту how".
 enum AutoFix {
     static let minimumLength = 3
-    /// A spell-checker correction this close counts as a typo of a real word ("everone" → "everyone").
-    static let maximumTypoDistance = 2
+    /// How far a spell-checker correction may be to count as a typo of a real word ("everone" → "everyone"):
+    /// none for short words, where nearly anything is that close to some word ("lkz" → "lap").
+    static func maximumTypoDistance(forLength length: Int) -> Int {
+        length >= 8 ? 2 : length >= 5 ? 1 : 0
+    }
 
     /// The range of `buffer` to retype on `target`, or nil to leave it. `buffer` ends with the finished word.
     /// Why a word was left as typed; the log shows it (never the word itself).
@@ -55,6 +58,8 @@ enum AutoFix {
 
     enum Decision {
         case fix(range: Range<Int>, target: KeyLayout)
+        /// The finished word stays, but the short words just before it go to `target` ("Z yf call" → "Я на call").
+        case fixShortWords(range: Range<Int>, target: KeyLayout)
         case skip(Skip)
     }
 
@@ -74,7 +79,12 @@ enum AutoFix {
         else { return .skip(.mixedLayouts) }
         guard let (source, target) = layoutsOf(buffer[last], layouts: layouts) else { return .skip(.noOtherLayout) }
         guard buffer[last].count >= minimumLength else { return .skip(.tooShort) }
-        if let reason = skipReason(buffer[last], from: source, to: target, speller: speller) { return .skip(reason) }
+        if let reason = skipReason(buffer[last], from: source, to: target, speller: speller) {
+            if let run = shortWordsToFix(before: words.dropLast(), in: buffer, layouts: layouts, speller: speller) {
+                return .fixShortWords(range: run.range, target: run.target)
+            }
+            return .skip(reason)
+        }
 
         // Walk back over the words before it typed in the same layout; stop at the first that belongs there.
         // Without a dictionary for the source language nothing can be said to belong, so fix only this word.
@@ -93,7 +103,8 @@ enum AutoFix {
                 if readsAsShortWord(fixed, language: target.language, speller: speller) { start = word.lowerBound }
                 continue
             }
-            guard !belongsToSource(buffer[word], source: source, target: target, speller: speller) else { break }
+            // Only a word that reads on the other layout goes along: a name no dictionary knows ("Jira") stays.
+            guard readsOnTarget(buffer[word], source: source, target: target, speller: speller) else { break }
             start = word.lowerBound  // takes the short words between this word and the fixed one along
         }
         return .fix(range: start..<buffer.count, target: target)
@@ -118,25 +129,63 @@ enum AutoFix {
         return typo ? nil : .notAWordOnOtherLayout
     }
 
-    /// A word before the fixed one stays only if it reads right where it was typed and wrong on the other
-    /// layout ("люблю" stays, "рун" = "hey" follows the phrase, "умукщту" = "everone" flips).
-    private static func belongsToSource(_ word: ArraySlice<Typed>, source: KeyLayout, target: KeyLayout,
-                                        speller: Speller) -> Bool {
-        let typed = word.map(\.text).joined()
+    /// A word before the fixed one goes along when it reads on the other layout, also when it reads where it
+    /// was typed too ("рун" = "hey" follows the phrase; "умукщту" = "everone", a typo, flips). One that reads only
+    /// where it was typed ("люблю"), or nowhere (a name like "Jira"), stays and ends the look back.
+    private static func readsOnTarget(_ word: ArraySlice<Typed>, source: KeyLayout, target: KeyLayout,
+                                      speller: Speller) -> Bool {
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
-        let readsAsSource = looksLikeWord(typed) && !hasLetterKeys(word, on: target)
-            && (speller.isValid(typed, language: source.language)
-                || closeCorrection(typed, language: source.language, speller: speller))
-        let readsAsTarget = looksLikeWord(fixed)
-            && (speller.isValid(fixed, language: target.language)
-                || closeCorrection(fixed, language: target.language, speller: speller))
-        return readsAsSource && !readsAsTarget
+        guard looksLikeWord(fixed) else { return false }
+        if speller.isValid(fixed, language: target.language) { return true }
+        // A near miss on the other side isn't enough to undo a real word ("для" must not become "lkz").
+        let typed = word.map(\.text).joined()
+        let typedIsWord = !hasLetterKeys(word, on: target) && readsAsWord(typed, language: source.language, speller: speller)
+        return !typedIsWord && closeCorrection(fixed, language: target.language, speller: speller)
+    }
+
+    /// When the finished word stays, the short words right before it, if each is a word only on the other layout:
+    /// two or more of them, or one at the start of what was typed ("Z yf call" → "Я на call"). A lone short word
+    /// mid-text stays (an "f" or "e" in a technical message).
+    private static func shortWordsToFix(before words: ArraySlice<Range<Int>>, in buffer: [Typed], layouts: LayoutSet,
+                                        speller: Speller) -> (range: Range<Int>, target: KeyLayout)? {
+        var run: [Range<Int>] = []
+        for word in words.reversed() {
+            guard buffer[word].count < minimumLength else { break }
+            run.insert(word, at: 0)
+        }
+        guard let first = run.first, let last = run.last,
+              let (source, target) = layoutsOf(buffer[first.lowerBound..<last.upperBound].filter { !$0.isSpace }[...],
+                                               layouts: layouts),
+              run.count >= 2 || words.first == first
+                || mostlyOn(target, before: first.lowerBound, in: buffer, comparedWith: source)
+        else { return nil }
+        for word in run {
+            let typed = buffer[word].map(\.text).joined()
+            let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
+            guard !readsAsShortWord(typed, language: source.language, speller: speller),
+                  readsAsShortWord(fixed, language: target.language, speller: speller)
+            else { return nil }
+        }
+        return (first.lowerBound..<last.upperBound, target)
     }
 
     /// Typed with keys that are punctuation here but letters on the other layout ("];fr" is "їжак"): then the
     /// spell checker's yes means little, since it skips the punctuation and sees only "fr".
+    /// The text so far is mostly in `target`'s language: at least as many longer words on it as on `source`, and
+    /// one or more ("Перевір, чи працює login yf mobile": a Ukrainian sentence with English terms).
+    private static func mostlyOn(_ target: KeyLayout, before end: Int, in buffer: [Typed],
+                                 comparedWith source: KeyLayout) -> Bool {
+        let longWords = wordRanges(in: Array(buffer[..<end])).filter { $0.count >= minimumLength }
+        let onTarget = longWords.filter { buffer[$0].first?.layoutID == target.id }.count
+        let onSource = longWords.filter { buffer[$0].first?.layoutID == source.id }.count
+        return onTarget >= 1 && onTarget >= onSource
+    }
+
     private static func hasLetterKeys(_ word: ArraySlice<Typed>, on target: KeyLayout) -> Bool {
-        word.contains { typed in
+        // Punctuation at the end is just punctuation ("staging," is English even though "," is "б" in Ukrainian);
+        // at the start or inside ("];fr", "k.,k.") it stands for letters.
+        let body = word.reversed().drop { $0.text.first?.isLetter == false }.reversed()
+        return body.contains { typed in
             typed.text.first?.isLetter == false && target.character(for: typed.stroke)?.first?.isLetter == true
         }
     }
@@ -147,26 +196,33 @@ enum AutoFix {
         looksLikeWord(word) && speller.isValid(word, language: language)
     }
 
-    /// The only one-letter words of a language. The spell checker takes any single letter ("Z", "p"), so it can't
-    /// tell "Я" (a word) from "Z" (not one).
-    static let oneLetterWords: [String: Set<Character>] = [
-        "en": ["a", "i"],
-        "uk": ["а", "в", "з", "і", "й", "о", "у", "я"],
-        "ru": ["а", "в", "и", "к", "о", "с", "у", "я"],
+    /// The real one- and two-letter words of the main languages. The spell checker takes almost any short string
+    /// ("Z", "p", "wt", "Nb"), so it can't tell "Я" or "Це" (words) from "Z" or "Wt" (not).
+    static let shortWords: [String: Set<String>] = [
+        "en": ["a", "i", "ah", "am", "an", "as", "at", "be", "by", "do", "eh", "go", "ha", "he", "hi", "if", "in",
+               "is", "it", "me", "my", "no", "of", "oh", "ok", "on", "or", "ox", "so", "to", "uh", "um", "up", "us",
+               "we", "yo"],
+        "uk": ["а", "в", "з", "і", "й", "о", "у", "я", "ти", "ми", "ви", "на", "до", "за", "по", "та", "це", "ця",
+               "ці", "як", "чи", "не", "ні", "її", "їх", "їм", "ще", "же", "бо", "аж", "ну", "де", "то", "із", "зі",
+               "об", "ой", "ох", "ах", "ей", "он", "от", "ну", "уж"],
+        "ru": ["а", "в", "и", "к", "о", "с", "у", "я", "ты", "мы", "вы", "на", "до", "за", "по", "не", "ни", "но",
+               "да", "же", "бы", "ли", "он", "от", "из", "со", "во", "об", "то", "её", "ее", "их", "им", "ей", "ой",
+               "ну", "уж", "аж", "ах", "ох"],
     ]
 
-    /// A one- or two-letter word that is a real word in `language`. Checked lowercase: capitalised, the spell
-    /// checker takes symbols and abbreviations too ("Nb", niobium; "nb" isn't a word).
+    /// A one- or two-letter word that is a real word in `language`: from the lists above, or, for another language,
+    /// the spell checker on the lowercase word.
     static func readsAsShortWord(_ word: String, language: String, speller: Speller) -> Bool {
         let core = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard !core.isEmpty, core.allSatisfy(\.isLetter) else { return false }
-        if core.count == 1, let letters = oneLetterWords[language] { return letters.contains(core.first!) }
-        return speller.isValid(core, language: language)
+        if let list = shortWords[language] { return list.contains(core) }
+        return core.count > 1 && speller.isValid(core, language: language)
     }
 
     private static func closeCorrection(_ word: String, language: String, speller: Speller) -> Bool {
         guard let correction = speller.correction(for: word, language: language) else { return false }
-        return editDistance(word.lowercased(), correction.lowercased()) <= maximumTypoDistance
+        let letters = word.filter(\.isLetter).count
+        return editDistance(word.lowercased(), correction.lowercased()) <= maximumTypoDistance(forLength: letters)
     }
 
     /// The words of the buffer (runs between spaces), as index ranges.

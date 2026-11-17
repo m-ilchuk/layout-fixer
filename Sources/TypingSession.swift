@@ -10,6 +10,8 @@ final class TypingSession {
         let text: String
         let source: KeyLayout?
         let target: KeyLayout
+        /// False when only words before the finished one changed: the keyboard stays on its layout.
+        var switches = true
     }
 
     static let maxRemembered = 300
@@ -129,6 +131,7 @@ final class TypingSession {
     /// Fix-while-typing: on Space, the word just finished (and the words before it on the same wrong layout).
     private func fixWordBeforeSpace() -> Edit? {
         let decision = AutoFix.decide(buffer: buffer, layouts: layouts, speller: speller)
+        if case .fixShortWords(let range, let target) = decision { return fixShortWords(range, on: target) }
         guard case .fix(let range, let target) = decision else {
             if case .skip(let reason) = decision { logSkip(reason) }
             return nil
@@ -140,6 +143,20 @@ final class TypingSession {
         buffer.append(Typed(stroke: TypingSession.spaceKey, layoutID: target.id, text: " "))
         appSwitched(to: target.id)
         return Edit(erase: range.count, text: fixed.map(\.text).joined() + " ", source: source, target: target)
+    }
+
+    /// The short words before the finished word go to `target`; the finished word and the layout stay.
+    private func fixShortWords(_ range: Range<Int>, on target: KeyLayout) -> Edit? {
+        guard let current = currentLayoutID.flatMap({ layouts.layout(id: $0) }) else { return nil }
+        let source = buffer[range].first.flatMap { layouts.layout(id: $0.layoutID) }
+        let fixed = Converter.retype(buffer[range], on: target)
+        let tail = buffer[range.upperBound...]
+        let erase = buffer.count - range.lowerBound
+        log("auto-fix: \(AutoFix.wordRanges(in: Array(buffer[range])).count) short words before the last one")
+        buffer.replaceSubrange(range, with: fixed)
+        buffer.append(Typed(stroke: TypingSession.spaceKey, layoutID: current.id, text: " "))
+        let text = fixed.map(\.text).joined() + tail.map(\.text).joined() + " "
+        return Edit(erase: erase, text: text, source: source, target: target, switches: false)
     }
 
     /// Why the word before this Space stays as typed: lengths and layouts only, never the text.

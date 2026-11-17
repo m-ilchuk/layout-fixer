@@ -154,6 +154,24 @@ git clone https://github.com/m-ilchuk/layout-fixer.git && cd layout-fixer
 LAYOUT_FIXER_UNIVERSAL=1 ./build.sh   # one app for Apple silicon and Intel, to hand to anyone
 ```
 
+### Testing
+
+`./build.sh --test` runs everything that needs no permissions, on any Mac:
+
+- **Unit tests:** conversions for every key on every layer (Ukrainian, Russian, Greek, German against English),
+  selection round trips, fix-while-typing decisions, release notes, versions.
+- **Chains:** whole sentences typed on a simulated Mac, the way a person types who forgot to switch. The simulated
+  Mac reproduces what real Macs did: macOS reporting the old layout for a moment after a switch, and key events
+  carrying the old layout's character. Each chain runs five ways.
+- **Corpus** (`Tests/Corpus.swift`): about 100 everyday and work sentences in Ukrainian, English and both mixed.
+  Typed on the right layout, every one must come out untouched (Layout Fixer must never change correct text).
+  Typed without ever switching, every one must come out as meant, except a short, named list of known limits:
+  words no dictionary knows (`Jira`, `Datadog`, `hotfix`, `CI`, slang), which a right ⌥ tap fixes.
+
+`./e2e.sh` is the end-to-end test: it types corpus sentences into TextEdit with real key presses while the real
+Layout Fixer runs, and checks what TextEdit shows (`./e2e.sh all` for every sentence). It needs Accessibility for
+Terminal, asks once to control TextEdit, and takes over the keyboard for a few minutes.
+
 ### Keep permissions across rebuilds
 
 Builds without a certificate are recognised by their identifier, so they keep the permission (see Privacy). To tie it

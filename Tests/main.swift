@@ -212,6 +212,7 @@ final class SimulatedMac {
     private var actual: KeyLayout
     private var reported: KeyLayout
     private var lagLeft = 0
+    var actualLayout: KeyLayout { actual }
     private let reportLag: Int
     private let eventCharacters: Bool
     /// Key events carry the character of the layout that was on before the app's own switch (seen on a real
@@ -256,6 +257,7 @@ final class SimulatedMac {
         else { screen += char; return }
         screen.removeLast(edit.erase)
         screen += edit.text
+        guard edit.switches else { return }
         reported = actual      // macOS keeps reporting the old layout for `reportLag` keys
         beforeAppSwitch = actual
         actual = edit.target
@@ -332,6 +334,94 @@ for notice in [true, false] {
               mac.screen, "hello привіт світ ")
     }
 }
+
+// MARK: Corpus: ~100 real-life sentences (Ukrainian, English, mixed), typed the ways people type them.
+
+/// The layout a word is meant in: Cyrillic letters → Ukrainian, Latin → English, none (numbers, dashes) → nil.
+func meantLayout(_ word: String) -> KeyLayout? {
+    if word.unicodeScalars.contains(where: { (0x0400...0x04FF).contains($0.value) }) { return ukrainian }
+    if word.unicodeScalars.contains(where: { $0.properties.isAlphabetic && $0.isASCII }) { return english }
+    return nil
+}
+
+enum CorpusScenario: CaseIterable {
+    case switchesWithNotice, switchesWithoutNotice, neverSwitchesFromEnglish, neverSwitchesFromUkrainian
+    var name: String {
+        switch self {
+        case .switchesWithNotice: "switches layouts correctly"
+        case .switchesWithoutNotice: "switches correctly, macOS sends no notice"
+        case .neverSwitchesFromEnglish: "never switches, starts on English"
+        case .neverSwitchesFromUkrainian: "never switches, starts on Ukrainian"
+        }
+    }
+}
+
+/// Types one sentence and returns the screen (without the final Space).
+func typeSentence(_ sentence: String, _ scenario: CorpusScenario,
+                  _ condition: (name: String, lag: Int, eventCharacters: Bool, stale: Bool)) -> String {
+    let words = sentence.split(separator: " ").map(String.init)
+    let first = words.compactMap(meantLayout).first ?? english
+    let start: KeyLayout
+    switch scenario {
+    case .switchesWithNotice, .switchesWithoutNotice: start = first
+    case .neverSwitchesFromEnglish: start = english
+    case .neverSwitchesFromUkrainian: start = ukrainian
+    }
+    let mac = SimulatedMac(ukrainianSet, startOn: start, reportLag: condition.lag,
+                           eventCharacters: condition.eventCharacters, staleEventText: condition.stale)
+    for word in words {
+        let meant = meantLayout(word) ?? mac.actualLayout
+        let switches = scenario == .switchesWithNotice || scenario == .switchesWithoutNotice
+        if switches && meantLayout(word) != nil && meant.id != mac.actualLayout.id {
+            mac.personSwitches(to: meant, notice: scenario == .switchesWithNotice)
+        }
+        mac.type([(word, meant)])
+    }
+    return String(mac.screen.dropLast())
+}
+
+/// Sentences fix-while-typing can't get right when the person never switches: each has a word no dictionary
+/// knows (slang, a name, jargon, an acronym), which it won't guess at. A right ⌥ tap fixes them. The test fails
+/// when another sentence misses, and when one of these starts working (so the list stays true).
+let knownNeverSwitchMisses: [String: String] = [
+    "Задеплоїв на staging, перевір, будь ласка.": "\"Задеплоїв\" is slang, not in the dictionary (from English)",
+    "Подивись логи в Datadog.": "\"Datadog\" is a name",
+    "Помилка в production, треба hotfix.": "\"hotfix\" isn't in the English dictionary",
+    "Налаштуй CI для нового репозиторію.": "\"CI\" is an acronym",
+    "У Jira створив тікет для API.": "\"Jira\" is a name (from Ukrainian)",
+]
+
+// Typed on the right layout, every sentence must come out untouched. Never switching, every sentence must come
+// out as meant, apart from the known limits above. A miss lists the sentence.
+var corpusTotals: [String] = []
+for scenario in CorpusScenario.allCases {
+    let neverSwitches = scenario == .neverSwitchesFromEnglish || scenario == .neverSwitchesFromUkrainian
+    for condition in chainConditions {
+        var unexpected: [String] = []
+        var known: [String] = []
+        for sentence in Corpus.all {
+            let screen = typeSentence(sentence, scenario, condition)
+            if screen == sentence { continue }
+            if neverSwitches && knownNeverSwitchMisses[sentence] != nil { known.append(sentence); continue }
+            unexpected.append("\n      got:  \(screen)\n      want: \(sentence)")
+        }
+        let right = Corpus.all.count - unexpected.count - known.count
+        corpusTotals.append("\(right)/\(Corpus.all.count)  \(scenario.name), \(condition.name)"
+                            + (known.isEmpty ? "" : " (\(known.count) known limits)"))
+        check("corpus: \(scenario.name), \(condition.name)", unexpected.isEmpty ? "all right" : unexpected.joined(), "all right")
+        if neverSwitches {
+            // A known limit that now works (in both starting layouts it can't be known for one only) is reported.
+            let nowRight = knownNeverSwitchMisses.keys.filter { sentence in
+                !known.contains(sentence) && typeSentence(sentence, .neverSwitchesFromEnglish, condition) == sentence
+                    && typeSentence(sentence, .neverSwitchesFromUkrainian, condition) == sentence
+            }
+            check("corpus: known limits still missed, \(scenario.name), \(condition.name)",
+                  nowRight.isEmpty ? "all still missed" : "now right: \(nowRight)", "all still missed")
+        }
+    }
+}
+print("corpus results:\n  " + corpusTotals.joined(separator: "\n  "))
+print("known limits (right ⌥ fixes them):\n  " + knownNeverSwitchMisses.map { "\($0.key)  — \($0.value)" }.sorted().joined(separator: "\n  "))
 
 // Release notes as the update dialog shows them.
 func plain(_ runs: [ReleaseNotes.Run]) -> String {
