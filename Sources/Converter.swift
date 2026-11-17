@@ -6,7 +6,8 @@ struct Typed {
     let layoutID: String
     let text: String
 
-    var isSpace: Bool { text == " " }
+    /// A space or a non-breaking space (⌥Space) separates words.
+    var isSpace: Bool { text == " " || text == "\u{00A0}" }
 }
 
 enum Converter {

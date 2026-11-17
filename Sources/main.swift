@@ -12,6 +12,8 @@ let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"
 let maxBufferLength = 300
 let keyDelayMicroseconds: useconds_t = 1500
 let rightOptionTapSeconds: TimeInterval = 0.4
+/// A second tap this soon after a last-word fix extends it to the whole phrase.
+let doubleTapSeconds: TimeInterval = 0.4
 
 enum KeyCode {
     static let space: UInt16 = 49
@@ -23,7 +25,12 @@ enum KeyCode {
     static let resetting: Set<UInt16> = [36, 76, 48, 53, 117, 115, 119, 116, 121, 123, 124, 125, 126]
 }
 
-enum Action { case lastWord, phraseOrSelection, selectionOrLastWord }
+enum Action {
+    /// Tap right ⌥: the selection, or the last word typed.
+    case selectionOrLastWord
+    /// Second tap right after a last-word fix: the rest of the phrase follows that word to the same layout.
+    case extendToPhrase(target: KeyLayout)
+}
 
 final class Fixer {
     var layouts = LayoutSet(layouts: [])
@@ -77,6 +84,8 @@ final class Fixer {
 
     // Right ⌥ pressed and released on its own, quickly, with nothing else in between.
     private var rightOptionDownAt: Date?
+    /// The last tap fixed the last word typed: when, and to which layout (for a double tap).
+    private var lastWordFix: (at: Date, target: KeyLayout)?
 
     private func trackRightOptionTap(keyCode: UInt16, held: CGEventFlags) {
         guard keyCode == KeyCode.rightOption else { rightOptionDownAt = nil; return }
@@ -84,10 +93,15 @@ final class Fixer {
             rightOptionDownAt = Date()
         } else if held.isEmpty, let downAt = rightOptionDownAt {
             rightOptionDownAt = nil
-            if Date().timeIntervalSince(downAt) < rightOptionTapSeconds {
+            guard Date().timeIntervalSince(downAt) < rightOptionTapSeconds else { return }
+            if let fix = lastWordFix, Date().timeIntervalSince(fix.at) < doubleTapSeconds {
+                log.info("hotkey: right option double tap")
+                pending = .extendToPhrase(target: fix.target)
+            } else {
                 log.info("hotkey: right option tap")
                 pending = .selectionOrLastWord
             }
+            lastWordFix = nil
         } else {
             rightOptionDownAt = nil
         }
@@ -98,15 +112,10 @@ final class Fixer {
     private func handleKeyDown(_ event: CGEvent) -> Bool {
         if !loggedFirstKey { loggedFirstKey = true; log.info("receiving key presses") }
         rightOptionDownAt = nil
+        lastWordFix = nil
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let command = flags.contains(.maskCommand) || flags.contains(.maskControl)
-
-        if keyCode == KeyCode.space && flags.contains(.maskAlternate) && !command {
-            pending = flags.contains(.maskShift) ? .phraseOrSelection : .lastWord
-            log.info("hotkey: option space, shift=\(flags.contains(.maskShift))")
-            return false
-        }
         if command || KeyCode.resetting.contains(keyCode) {
             reset()
             return true
@@ -142,43 +151,36 @@ final class Fixer {
 
     private func run(_ action: Action) {
         switch action {
-        case .lastWord:
-            fixTyped(wholePhrase: false)
         case .selectionOrLastWord:
-            if let selected = Selection.textViaAccessibility(), !selected.isEmpty {
-                log.info("selection via accessibility: \(selected.count) chars")
-                fixSelection(knownText: selected)
-            } else if buffer.contains(where: { !$0.isSpace }) {
-                fixTyped(wholePhrase: false)
-            } else {
-                fixSelection(knownText: nil)
-            }
-        case .phraseOrSelection:
             // Selection first: whatever is selected is what you want converted.
             if let selected = Selection.textViaAccessibility(), !selected.isEmpty {
                 log.info("selection via accessibility: \(selected.count) chars")
                 fixSelection(knownText: selected)
             } else if buffer.contains(where: { !$0.isSpace }) {
-                log.info("no selection; fixing typed phrase of \(self.buffer.count) keys")
-                fixTyped(wholePhrase: true)
+                if let target = fixTyped(wholePhrase: false) { lastWordFix = (Date(), target) }
             } else {
                 log.info("no selection via accessibility; trying copy")
                 fixSelection(knownText: nil)
             }
+        case .extendToPhrase(let target):
+            fixTyped(wholePhrase: true, target: target)
         }
     }
 
-    /// Erase the segment and type it again as the other layout. Pressing the hotkey again flips it back.
-    private func fixTyped(wholePhrase: Bool) {
+    /// Erase the segment and type it again on the other layout (or `target`); returns the layout it went to.
+    /// Tapping again later flips it back.
+    @discardableResult
+    private func fixTyped(wholePhrase: Bool, target: KeyLayout? = nil) -> KeyLayout? {
         guard let range = Converter.segment(of: buffer, wholePhrase: wholePhrase),
-              let target = Converter.target(for: buffer[range], in: layouts)
-        else { NSSound.beep(); return }
+              let target = target ?? Converter.target(for: buffer[range], in: layouts)
+        else { NSSound.beep(); return nil }
         let source = buffer[range].last(where: { !$0.isSpace }).flatMap { layouts.layout(id: $0.layoutID) }
         let fixed = Converter.retype(buffer[range], on: target)
         Typist.erase(count: range.count)
         Typist.type(fixed.map(\.text).joined())
         buffer.replaceSubrange(range, with: fixed)
         switchLayout(to: target, from: source)
+        return target
     }
 
     /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
@@ -465,10 +467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(info(Setup.pairLine(fixer.layouts)))
         menu.addItem(.separator())
-        menu.addItem(info("Tap right ⌥  fix the selection, or the last word"))
-        menu.addItem(info("⌥Space   fix the last word"))
-        menu.addItem(info("⌥⇧Space  fix the whole phrase, or the selection"))
-        menu.addItem(info("Press again to flip it back"))
+        menu.addItem(info("Tap right ⌥: fix the selection, or the last word"))
+        menu.addItem(info("Double-tap right ⌥: fix the whole phrase"))
+        menu.addItem(info("Tap again later to flip it back"))
         menu.addItem(.separator())
         menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))
         menu.addItem(toggle("Fix automatically while typing (beta)", on: fixer.autoFix, action: #selector(toggleAuto)))

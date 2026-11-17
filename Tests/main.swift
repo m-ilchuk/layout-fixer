@@ -54,6 +54,23 @@ check("last word with trailing space", fix(typed("ghbdsn ", on: english), wholeP
 check("punctuation keys are letters", fix(typed("lj,hjuj", on: english), wholePhrase: false), "доброго")
 check("flip twice returns", fix(typed(fix(typed("ghbdsn", on: english), wholePhrase: false)!, on: ukrainian), wholePhrase: false), "ghbdsn")
 
+// Double tap: the last word goes first, then the rest of the phrase follows it to the same layout.
+func doubleTap(_ buffer: [Typed], in layouts: LayoutSet = ukrainianSet) -> String? {
+    guard let word = Converter.segment(of: buffer, wholePhrase: false),
+          let target = Converter.target(for: buffer[word], in: layouts) else { return nil }
+    var out = buffer
+    out.replaceSubrange(word, with: Converter.retype(buffer[word], on: target))
+    guard let phrase = Converter.segment(of: out, wholePhrase: true) else { return nil }
+    out.replaceSubrange(phrase, with: Converter.retype(out[phrase], on: target))
+    return out.map(\.text).joined()
+}
+check("double tap: whole phrase en→uk", doubleTap(typed("ghbdsn wt z", on: english)), "привіт це я")
+check("double tap: whole phrase uk→en", doubleTap(typed("руддщ шеєі ьу", on: ukrainian)), "hello it's me")
+check("double tap again flips the phrase back", doubleTap(typed("привіт це я", on: ukrainian)), "ghbdsn wt z")
+let optionSpace = Typed(stroke: KeyStroke(keyCode: 49, modifiers: KeyStroke.option), layoutID: english.id, text: "\u{00A0}")
+check("⌥Space (non-breaking space) separates words",
+      fix(typed("ghbdsn", on: english) + [optionSpace] + typed("wt", on: english), wholePhrase: false), "ghbdsn\u{00A0}це")
+
 // Other languages ↔ English.
 check("russian: en→ru", fix(typed("ghbdtn vbh", on: russianSet.english!), wholePhrase: true, in: russianSet), "привет мир")
 check("russian: ru→en", select("руддщ цщкдв", in: russianSet), "hello world")

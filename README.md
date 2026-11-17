@@ -28,12 +28,15 @@ Needs macOS 13 or newer, on Apple silicon or Intel.
 
 ## Use
 
-| Keys | What it does |
+Everything is on the **right ⌥** key, pressed on its own:
+
+| | What it does |
 |---|---|
-| **Tap right ⌥** (alone) | Convert the **selected** text; with nothing selected, the last word you typed |
-| ⌥Space | Retype the last word in the other layout and switch the layout |
-| ⌥⇧Space | Convert the **selected** text; with nothing selected, the whole phrase since the last click / Enter / arrow key |
-| same key again | Flip it back |
+| **Tap** | Convert the **selected** text; with nothing selected, the last word you typed |
+| **Double-tap** | Convert the whole phrase since the last click, Enter or arrow key |
+| **Tap again later** | Flip it back |
+
+Each one also switches the keyboard layout. ⌥Space and the other ⌥ shortcuts are left to your apps.
 
 After each fix a small badge such as `UK → EN` shows under the text cursor for a moment (menu › **Show a flash
 when fixing** turns it off).
