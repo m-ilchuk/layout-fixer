@@ -24,17 +24,9 @@ enum Converter {
     static func retype(_ segment: ArraySlice<Typed>, on target: KeyLayout) -> [Typed] {
         segment.map { typed in
             if typed.isSpace || typed.layoutID == target.id { return typed }
-            let text = keepPunctuation(typed.text, target.character(for: typed.stroke))
+            let text = target.character(for: typed.stroke) ?? typed.text
             return Typed(stroke: typed.stroke, layoutID: target.id, text: text)
         }
-    }
-
-    /// A key that is punctuation on both layouts (Ukrainian "," vs ABC "?") keeps what you saw;
-    /// a key that is a letter on either side (ABC "," vs Ukrainian "б") converts.
-    static func keepPunctuation(_ original: String, _ converted: String?) -> String {
-        guard let converted else { return original }
-        let isLetter = { (text: String) in text.first?.isLetter == true }
-        return isLetter(original) || isLetter(converted) ? converted : original
     }
 
     /// For selected text (no key presses to replay): guess the layout it was typed in from its
@@ -45,7 +37,8 @@ enum Converter {
         else { return nil }
         let converted = text.map { char -> String in
             guard let stroke = source.strokeForCharacter[char] else { return String(char) }
-            return keepPunctuation(String(char), target.character(for: stroke))
+            // Punctuation goes by key like letters: the key that types "," on Ukrainian types "?" in English.
+            return target.character(for: stroke) ?? String(char)
         }.joined()
         return (converted, target)
     }

@@ -131,8 +131,8 @@ text anywhere. Its only network call is the update check to GitHub (`api.github.
   is hard-coded and the result matches your layouts (`'` → `є`, `s` → `і`, `]` → `ї`).
 - **Selected text** has no key presses to replay: it reads the selection through Accessibility (or copies it where an
   app doesn't share it), works out which layout can type it, pastes the converted text over it and selects it
-  again. Punctuation that is punctuation on both layouts stays as you see it, and a second tap restores the exact
-  original.
+  again. Punctuation converts by key like letters (`руддщ,` → `hello?`, since that key types `?` in English),
+  and a second tap restores the exact original.
 - **Installing from source** means nothing prebuilt is downloaded, so Gatekeeper has nothing to block, and you can
   read every line that runs.
 
