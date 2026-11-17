@@ -53,16 +53,13 @@ enum AutoFix {
 
         // Walk back over the words before it typed in the same layout; stop at the first that belongs there.
         // Without a dictionary for the source language nothing can be said to belong, so fix only this word.
-        // A short word ("з", "і", "a") is a word in both languages, so it says nothing: it goes along only when a
-        // longer word before it goes too ("руддщ ш цфте" → "hello i want"), never on its own ("синхронізацію з").
         var start = last.lowerBound
         let canJudgeEarlierWords = speller.supports(source.language) && speller.supports(target.language)
         for word in words.dropLast().reversed() where canJudgeEarlierWords {
-            guard let (wordSource, _) = layoutsOf(buffer[word], layouts: layouts), wordSource.id == source.id
+            guard let (wordSource, _) = layoutsOf(buffer[word], layouts: layouts), wordSource.id == source.id,
+                  !belongsToSource(buffer[word], source: source, target: target, speller: speller)
             else { break }
-            if buffer[word].count < minimumLength { continue }
-            guard !belongsToSource(buffer[word], source: source, target: target, speller: speller) else { break }
-            start = word.lowerBound  // takes the short words between this word and the fixed one along
+            start = word.lowerBound
         }
         return (start..<buffer.count, target)
     }

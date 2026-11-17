@@ -126,11 +126,6 @@ check("auto leaves an earlier switch alone", auto("hello ghbdsn", on: english), 
 check("auto fixes en→ru", auto("ghbdtn", on: russianSet.english!, in: russianSet), "привет")
 check("auto keeps a real Russian word", auto("привет", on: russianSet.local!, in: russianSet), "nil")
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
-// Short words before an auto-fixed word: "з" is a word in Ukrainian and "p" in English, so on its own it stays.
-check("auto: a short word before the fixed one stays", auto("синхронізацію з Сщтіефте", on: ukrainian), "синхронізацію з Constant")
-check("auto: a short word at the start stays", auto("з Сщтіефте", on: ukrainian), "з Constant")
-check("auto: a short word between converted words converts", auto("руддщ ш цфте ерші", on: ukrainian), "hello i want this")
-
 // Fix-while-typing converts punctuation by key too.
 check("auto: , typed for ? (uk→en)", auto("руддщ,", on: ukrainian), "hello?")
 check("auto: phrase ending in ? (uk→en)", auto("рщц фку нщг,", on: ukrainian), "how are you?")
