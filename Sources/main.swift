@@ -33,6 +33,9 @@ final class Fixer {
     /// Right ⌥ was tapped: convert the selection once the key is up.
     var pending = false
     private var lastConversion = LastConversion()
+    /// A selection is being copied, converted and pasted (about half a second); taps meanwhile are ignored,
+    /// or two pastes land on top of each other and the text doubles.
+    private var convertingSelection = false
     var enabled = true
     var autoFix = UserDefaults.standard.bool(forKey: "autoFix") {
         didSet { UserDefaults.standard.set(autoFix, forKey: "autoFix") }
@@ -139,6 +142,10 @@ final class Fixer {
     /// Right ⌥: the selected text, or with nothing selected the last word typed, goes to the other layout.
     /// Another tap converts it back.
     private func convertSelection() {
+        guard !convertingSelection else {
+            log.info("tap ignored: the last conversion is still pasting")
+            return
+        }
         let selection = Selection.current()
         if let selection, !selection.text.isEmpty {
             log.info("selection via accessibility: \(selection.text.count) chars")
@@ -186,6 +193,7 @@ final class Fixer {
     /// Convert the selected text, paste it over the selection, select it again, switch the layout and restore
     /// the clipboard. Apps that don't share the selection through Accessibility (some browsers) get it copied with ⌘C.
     private func fixSelection(_ selection: Selection.Current?) {
+        convertingSelection = true
         let pasteboard = NSPasteboard.general
         let saved = Clipboard.save(pasteboard)
         let replace: (String?) -> Void = { [weak self] text in
@@ -193,6 +201,7 @@ final class Fixer {
             guard let text, let (converted, target) = self.conversion(of: text) else {
                 log.info("nothing to convert (copied: \(text?.count ?? -1) chars)")
                 Clipboard.restore(saved, to: pasteboard)
+                self.convertingSelection = false
                 NSSound.beep()
                 return
             }
@@ -205,7 +214,10 @@ final class Fixer {
             self.reset()
             self.switchLayout(to: target, from: self.layouts.other(than: target.id))
             log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Clipboard.restore(saved, to: pasteboard) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                Clipboard.restore(saved, to: pasteboard)
+                self.convertingSelection = false
+            }
         }
         if let selection { return replace(selection.text) }
         let before = pasteboard.changeCount
