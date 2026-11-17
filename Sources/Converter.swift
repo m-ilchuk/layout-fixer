@@ -49,8 +49,11 @@ enum Converter {
     static func typedLayout(of text: String, layouts: LayoutSet, currentID: String? = nil) -> KeyLayout? {
         let letters = text.filter(\.isLetter)
         guard !letters.isEmpty else { return nil }
-        let coverage = layouts.layouts.map { layout in
-            (layout, letters.filter { layout.strokeForCharacter[$0] != nil }.count)
+        // Letters a layout types without ⌥ count most: Russian - PC has "ї" only on ⌥, Ukrainian on its own key.
+        let coverage = layouts.layouts.map { layout -> (KeyLayout, Int) in
+            let strokes = letters.compactMap { layout.strokeForCharacter[$0] }
+            let withoutOption = strokes.filter { $0.modifiers & KeyStroke.option == 0 }.count
+            return (layout, withoutOption * (letters.count + 1) + strokes.count)
         }
         guard let best = coverage.map(\.1).max(), best > 0 else { return nil }
         let candidates = coverage.filter { $0.1 == best }.map(\.0)

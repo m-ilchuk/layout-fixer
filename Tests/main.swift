@@ -128,6 +128,31 @@ check("auto keeps a real Russian word", auto("привет", on: russianSet.loca
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
 check("edit distance", String(AutoFix.editDistance("everone", "everyone")), "1")
 
+// Every key, plain, ⇧, ⌥ and ⇧⌥, both ways: selected text converts to what the same key types on the other
+// layout. A character more than one key types ("!" is ⇧1 and ⌥1 on Ukrainian-PC) goes by its plain or ⇧ key.
+func everyKey(_ set: LayoutSet) -> String {
+    var misses: [String] = []
+    for (from, to) in [(set.local!, set.english!), (set.english!, set.local!)] {
+        for modifiers in KeyLayout.reverseMapModifiers {
+            for keyCode in KeyLayout.mainBlockKeyCodes {
+                let stroke = KeyStroke(keyCode: keyCode, modifiers: modifiers)
+                guard let char = from.character(for: stroke), char.count == 1, char != " ",
+                      let want = to.character(for: stroke),
+                      from.strokeForCharacter[Character(char)] == stroke  // the key this character means
+                else { continue }
+                let got = to.character(for: from.strokeForCharacter[Character(char)]!)
+                if got != want { misses.append("\(char)→\(got ?? "nil")") }
+            }
+        }
+    }
+    return misses.isEmpty ? "all keys" : misses.joined(separator: " ")
+}
+check("every key: ABC ↔ Ukrainian-PC", everyKey(ukrainianSet), "all keys")
+check("every key: U.S. ↔ Russian - PC", everyKey(russianSet), "all keys")
+check("every key: ABC ↔ Greek", everyKey(greekSet), "all keys")
+check("every key: ABC ↔ German", everyKey(germanSet), "all keys")
+check("⌥ layer: ы (⌥S on Ukrainian) → ß", select("руддщ ы", current: "Ukrainian-PC"), "hello ß")
+
 // Release notes as the update dialog shows them.
 func plain(_ runs: [ReleaseNotes.Run]) -> String {
     runs.map { $0.bold ? "[\($0.text)]" : $0.code ? "<\($0.text)>" : $0.text }.joined()

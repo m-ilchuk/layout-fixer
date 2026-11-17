@@ -93,9 +93,11 @@ final class KeyLayout {
         return property(source, kTISPropertyInputSourceID)
     }
 
-    // Unshifted first, so "a" maps to the plain key and "A" to shift.
+    /// Plain first, then ⇧, ⌥, ⇧⌥: a character some key types without ⌥ maps to that key ("!" is ⇧1, not ⌥1).
+    static let reverseMapModifiers = [0, KeyStroke.shift, KeyStroke.option, KeyStroke.shift | KeyStroke.option]
+
     private func buildReverseMap() {
-        for modifiers in [0, KeyStroke.shift] {
+        for modifiers in KeyLayout.reverseMapModifiers {
             for keyCode in KeyLayout.mainBlockKeyCodes {
                 let stroke = KeyStroke(keyCode: keyCode, modifiers: modifiers)
                 guard let text = character(for: stroke), text.count == 1, let char = text.first else { continue }
