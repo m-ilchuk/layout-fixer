@@ -20,12 +20,14 @@ A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and 
    It downloads the latest release, builds it on your Mac (about a minute) and starts it. Building needs Apple's
    free command line tools: if they're missing, a window offers to install them. Click **Install**, wait for it to
    finish, then paste the line again.
-3. **Allow it.** A dialog says *"LayoutFixer" would like to control this computer using accessibility features*.
-   Click **Open System Settings** and turn on **LayoutFixer**. macOS may ask for your password or Touch ID.
+3. **Allow it.** The Layout Fixer window opens, and a dialog says *"LayoutFixer" would like to control this
+   computer using accessibility features*. Click **Open System Settings** and turn on **LayoutFixer**. macOS may
+   ask for your password or Touch ID.
 
    No dialog, or LayoutFixer isn't in the list? Open System Settings › Privacy & Security › **Accessibility**, click
    **+**, press ⌘⇧G, type `~/Applications/LayoutFixer.app`, press Return, click **Open** and turn it on.
-4. Within a few seconds the menu bar icon changes from ⚠ to ⌨. Done.
+4. Within a few seconds the window says **✓ Allowed in Accessibility** and the menu bar icon changes from ⚠ to ⌨.
+   Done.
 
 Optional: ⌨ menu › **Open at login** to start it with your Mac.
 
@@ -45,7 +47,11 @@ now Ukrainian. Tap again and it's back to `ghbdsn`.
 
 ## Settings
 
-Everything is in the ⌨ menu bar icon:
+Open **LayoutFixer** again (Spotlight or `~/Applications`) to get its window; the ⌨ menu bar icon has the same
+settings plus **Settings…**.
+
+<img src="docs/settings.png" width="460" alt="The Layout Fixer window: Accessibility status, how to use it, the layout pair and the settings">
+
 
 - **Switches ABC ↔ Ukrainian** (first line): the two layouts it uses now.
 - **Enabled**: pause it without quitting.
@@ -54,8 +60,8 @@ Everything is in the ⌨ menu bar icon:
   together with the words before it typed on the same wrong layout: `рун умукщту рщц` → `hey everone how`.
 - **Show a flash when fixing**: the `UK → EN` badge.
 - **Open at login**.
-- **Hide menu bar icon**: macOS already shows the current layout, so the icon can go. Open LayoutFixer again
-  (Spotlight or `~/Applications`) to bring it back. While it waits for Accessibility it shows ⚠ even when hidden.
+- **Show icon in menu bar**: macOS already shows the current layout, so the icon can go; the window is always
+  there when you open LayoutFixer again. While it waits for Accessibility it shows ⚠ even when hidden.
 - **Check for Updates…** and **Check for updates automatically** (once a day).
 
 ## Layouts
@@ -80,8 +86,11 @@ You can also update by running the install line again.
 
 ## Troubleshooting
 
-- **Nothing happens when I tap right ⌥.** Check the menu bar icon: ⚠ means it isn't allowed yet (see Install, step
-  3); a dimmed ⌨ means **Enabled** is off. Tap the key quickly and on its own: holding it, or pressing another key
+- **I can't see the icon in the menu bar.** On MacBooks with a notch, macOS hides menu bar icons that don't fit
+  next to it. Open LayoutFixer again from Spotlight to get its window, or make room: hold ⌘ and drag icons you
+  don't need off the menu bar.
+- **Nothing happens when I tap right ⌥.** Open LayoutFixer again: its window says whether it is allowed in
+  Accessibility (see Install, step 3) and whether it is **Enabled**. Tap the key quickly and on its own: holding it, or pressing another key
   with it, is ⌥ doing its usual job.
 - **It beeps.** Nothing is selected and you haven't typed anything since your last click, so there is nothing to
   convert.

@@ -409,6 +409,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         didSet { UserDefaults.standard.set(hideIcon, forKey: "hideIcon"); refreshIcon() }
     }
     private let updater = Updater()
+    private lazy var settingsWindow = SettingsWindow(settings: settings, status: { [unowned self] in self.status() },
+                                                     update: { [unowned self] in self.updateFromWindow() })
+
+    /// Every on/off setting, in the order the window shows them (the menu leaves out the icon one).
+    private lazy var settings: [Setting] = [
+        Setting(title: "Enabled", isOn: { fixer.enabled }, set: { [unowned self] on in
+            fixer.enabled = on
+            fixer.reset()
+            self.refreshIcon()
+        }),
+        Setting(title: "Fix automatically while typing (beta)", isOn: { fixer.autoFix }, set: { fixer.autoFix = $0 }),
+        Setting(title: "Show a flash when fixing", isOn: { Flash.shared.enabled }, set: { Flash.shared.enabled = $0 }),
+        Setting(title: "Open at login", isOn: { SMAppService.mainApp.status == .enabled },
+                set: { [unowned self] on in self.setOpenAtLogin(on) }),
+        Setting(title: "Show icon in menu bar", isOn: { [unowned self] in !self.hideIcon },
+                set: { [unowned self] on in self.hideIcon = !on }),
+        Setting(title: "Check for updates automatically", isOn: { [unowned self] in self.updater.automatic },
+                set: { [unowned self] on in self.updater.automatic = on }),
+    ]
+    private static let iconSettingTitle = "Show icon in menu bar"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         fixer.reloadLayouts()
@@ -416,10 +436,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
                            object: nil, queue: .main) { _ in
             fixer.layoutChanged()
-            self.rebuildMenu()
+            self.changed()
         }
         center.addObserver(forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String),
-                           object: nil, queue: .main) { _ in fixer.reloadLayouts(); self.rebuildMenu() }
+                           object: nil, queue: .main) { _ in fixer.reloadLayouts(); self.changed() }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset() }
 
@@ -427,15 +447,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
         refreshIcon()
         startTap()
-        updater.onChange = { [weak self] in self?.rebuildMenu(); self?.refreshIcon() }
+        updater.onChange = { [weak self] in self?.changed(); self?.refreshIcon() }
         updater.start()
+
+        // First launch, or not allowed yet: show the window, which says what to do (the icon may be hidden).
+        let firstLaunch = !UserDefaults.standard.bool(forKey: "launchedBefore")
+        UserDefaults.standard.set(true, forKey: "launchedBefore")
+        if firstLaunch || !AXIsProcessTrusted() { settingsWindow.show() }
     }
 
-    /// Opening the app again (Spotlight, Finder) while it runs brings a hidden icon back and opens its menu.
+    func settingsSnapshot(to url: URL) throws {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        try settingsWindow.snapshot(to: url)
+    }
+
+    /// Opening the app again (Spotlight, Finder) while it runs shows its window.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        hideIcon = false
-        DispatchQueue.main.async { self.statusItem.button?.performClick(nil) }
+        settingsWindow.show()
         return false
+    }
+
+    /// Something the menu and the window show changed.
+    private func changed() {
+        rebuildMenu()
+        settingsWindow.refresh()
+    }
+
+    private func status() -> SettingsStatus {
+        let commit = Updater.currentCommit.map { " (\($0.prefix(7)))" } ?? ""
+        let update: (String, Bool)
+        if updater.installing {
+            update = ("Updating…", false)
+        } else if case .available(let release) = updater.status {
+            update = ("Install version \(release.version)…", true)
+        } else {
+            update = ("Check for Updates…", true)
+        }
+        return SettingsStatus(accessAllowed: AXIsProcessTrusted(), pair: Setup.pairLine(fixer.layouts),
+                              version: "\(Updater.currentVersion?.description ?? "?")\(commit)",
+                              updateTitle: update.0, updateEnabled: update.1)
+    }
+
+    private func updateFromWindow() {
+        if case .available = updater.status { installUpdate() } else { checkForUpdates() }
     }
 
     private var askedForAccess = false
@@ -476,6 +530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CGEvent.tapEnable(tap: tap, enable: true)
         log.info("listening for keys")
         refreshIcon()
+        settingsWindow.refresh()
     }
 
     private func retryTap() {
@@ -514,20 +569,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(info("    or the last word you typed"))
         menu.addItem(info("Tap again: convert it back"))
         menu.addItem(.separator())
-        menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))
-        menu.addItem(toggle("Fix automatically while typing (beta)", on: fixer.autoFix, action: #selector(toggleAuto)))
-        menu.addItem(toggle("Open at login", on: SMAppService.mainApp.status == .enabled, action: #selector(toggleLogin)))
-        menu.addItem(toggle("Show a flash when fixing", on: Flash.shared.enabled, action: #selector(toggleFlash)))
+        for (index, setting) in settings.enumerated() where setting.title != AppDelegate.iconSettingTitle {
+            let entry = toggle(setting.title, on: setting.isOn(), action: #selector(toggleSetting(_:)))
+            entry.tag = index
+            menu.addItem(entry)
+        }
         menu.addItem(item("Hide menu bar icon", action: #selector(hideMenuBarIcon)))
         menu.addItem(.separator())
         let check = item("Check for Updates…", action: #selector(checkForUpdates))
         check.isEnabled = !updater.installing
         menu.addItem(check)
-        menu.addItem(toggle("Check for updates automatically", on: updater.automatic, action: #selector(toggleAutoUpdate)))
-        let commit = Updater.currentCommit.map { " (\($0.prefix(7)))" } ?? ""
-        menu.addItem(info("Version \(Updater.currentVersion?.description ?? "?")\(commit)"))
+        menu.addItem(info("Version \(status().version)"))
         menu.addItem(.separator())
-        menu.addItem(item("Privacy settings…", action: #selector(openPrivacy)))
+        menu.addItem(item("Settings…", action: #selector(showSettings), key: ","))
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
         statusItem.menu = menu
     }
@@ -550,10 +604,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func toggleEnabled() { fixer.enabled.toggle(); fixer.reset(); rebuildMenu(); refreshIcon() }
+    @objc private func toggleSetting(_ sender: NSMenuItem) {
+        let setting = settings[sender.tag]
+        setting.set(!setting.isOn())
+        changed()
+    }
 
-    @objc private func toggleFlash() { Flash.shared.enabled.toggle(); rebuildMenu() }
-    @objc private func toggleAutoUpdate() { updater.automatic.toggle(); rebuildMenu() }
+    @objc private func showSettings() { settingsWindow.show() }
 
     @objc private func checkForUpdates() {
         updater.check { [weak self] status in
@@ -592,30 +649,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func hideMenuBarIcon() {
         let alert = NSAlert()
         alert.messageText = "Hide the Layout Fixer icon?"
-        alert.informativeText = "Layout Fixer keeps working. To bring the icon back, open Layout Fixer again "
+        alert.informativeText = "Layout Fixer keeps working. To get to its settings, open Layout Fixer again "
             + "(Spotlight: “LayoutFixer”, or ~/Applications)."
         alert.addButton(withTitle: "Hide")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn { hideIcon = true }
+        if alert.runModal() == .alertFirstButtonReturn { hideIcon = true; changed() }
     }
-    @objc private func toggleAuto() { fixer.autoFix.toggle(); rebuildMenu() }
 
-    @objc private func toggleLogin() {
+    private func setOpenAtLogin(_ on: Bool) {
         do {
-            if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
-            else { try SMAppService.mainApp.register() }
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "Could not change Open at login"
-            alert.informativeText = "\(error.localizedDescription)\nAdd Layout Fixer in System Settings > General > Login Items instead."
-            alert.runModal()
+            tell("Could not change Open at login",
+                 "\(error.localizedDescription)\nAdd Layout Fixer in System Settings › General › Login Items instead.")
         }
-        rebuildMenu()
-    }
-
-    @objc private func openPrivacy() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
@@ -631,6 +679,16 @@ if CommandLine.arguments.contains("--layouts") {
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
+
+// `LayoutFixer --settings-snapshot file.png`: render the settings window to an image (README) and exit.
+if let flag = CommandLine.arguments.firstIndex(of: "--settings-snapshot"), flag + 1 < CommandLine.arguments.count {
+    fixer.reloadLayouts()
+    do { try delegate.settingsSnapshot(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) } catch {
+        print("could not write the snapshot: \(error.localizedDescription)")
+        exit(1)
+    }
+    exit(0)
+}
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
 app.run()
