@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="96" alt="Layout Fixer icon: an A keycap behind a Ї keycap">
+
 # Layout Fixer
 
 Typed a whole sentence before noticing the keyboard was on the wrong language? Select it and tap the **right ⌥**

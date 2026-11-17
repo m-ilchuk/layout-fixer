@@ -97,8 +97,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let title = NSTextField(labelWithString: "Layout Fixer")
         title.font = .systemFont(ofSize: 18, weight: .semibold)
         versionLabel.textColor = .secondaryLabelColor
-        let heading = row([title, versionLabel])
-        heading.alignment = .firstBaseline
+        let icon = NSImageView(image: NSApp.applicationIconImage)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let heading = row([icon, title, versionLabel])
+        heading.alignment = .centerY
 
         accessLabel.font = .systemFont(ofSize: 13, weight: .medium)
         accessHelp.stringValue = "Turn on LayoutFixer in the list. Not there? Click +, press ⌘⇧G, type "

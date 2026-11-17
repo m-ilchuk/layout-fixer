@@ -30,6 +30,8 @@ for PID in "${PIDS[@]}"; do wait "$PID" || { echo "build.sh: compiling failed" >
 echo "==> Signing"
 lipo -create build/LayoutFixer-arm64 build/LayoutFixer-x86_64 -output "$APP/Contents/MacOS/LayoutFixer"
 cp Info.plist "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+cp Icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"  # made by: swift Icon/make-icon.swift
 # The commit this build comes from, for "Check for Updates" (get.sh passes it; a checkout knows it).
 COMMIT="${LAYOUT_FIXER_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 /usr/libexec/PlistBuddy -c "Add :LFSourceCommit string $COMMIT" "$APP/Contents/Info.plist"
