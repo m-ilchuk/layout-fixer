@@ -7,6 +7,11 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Fixes
+- Fix while typing works in Gmail and other web pages again: since 0.2.7 the word was left selected and unconverted
+  there. Web pages (any browser, Slack and other Electron apps) get the fix as key presses again, as before; native
+  apps keep the one-step replacement.
+
 ## 0.2.7 — 2026-11-17
 
 ### Fixes

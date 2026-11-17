@@ -319,6 +319,11 @@ enum Selection {
 
     enum Replacement { case replaced, unverified, notPossible }
 
+    /// Deep enough for a field inside a web page (a browser nests dozens of groups).
+    static let maximumAncestors = 60
+    static let cursorBackChecks = 10
+    static let cursorBackPauseMicroseconds: useconds_t = 10_000
+
     /// Replace the `count` characters before the cursor with `text` through Accessibility, in one step: no
     /// keystrokes an app can drop. `.notPossible` when the app doesn't allow it and nothing changed (send
     /// keystrokes instead); `.unverified` when it took the text but it can't be read back (don't type it again).
@@ -326,6 +331,11 @@ enum Selection {
         guard count > 0, let element = focusedElement(), let cursor = selectedRange(in: element),
               cursor.length == 0, cursor.location >= count
         else { return .notPossible }
+        let roles = rolesUpToWindow(from: element)
+        guard ReplaceMethod.forField(roles: roles) == .accessibility else {
+            log.notice("keystrokes for this field: \(roles.isEmpty ? "no roles" : "inside a web page", privacy: .public)")
+            return .notPossible
+        }
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
               settable.boolValue
@@ -340,6 +350,11 @@ enum Selection {
             var back = cursor
             if let value = AXValueCreate(.cfRange, &back) {
                 AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, value)
+            }
+            // Backspaces on a selection would erase it and more: wait until the app shows the cursor back.
+            for _ in 0..<cursorBackChecks {
+                if let now = selectedRange(in: element), now.location == cursor.location, now.length == 0 { break }
+                usleep(cursorBackPauseMicroseconds)
             }
             return .notPossible
         }
@@ -385,6 +400,25 @@ enum Selection {
         var rect = CGRect.zero
         guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0 else { return nil }
         return rect
+    }
+
+    /// The Accessibility roles from `element` up to its window ("AXTextArea", …, "AXWebArea", …, "AXWindow").
+    private static func rolesUpToWindow(from element: AXUIElement) -> [String] {
+        var roles: [String] = []
+        var current: AXUIElement? = element
+        while let node = current, roles.count < maximumAncestors {
+            var role: CFTypeRef?
+            AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &role)
+            guard let name = role as? String else { break }
+            roles.append(name)
+            if name == kAXWindowRole as String { break }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(node, kAXParentAttribute as CFString, &parent) == .success,
+                  let parent, CFGetTypeID(parent) == AXUIElementGetTypeID()
+            else { break }
+            current = (parent as! AXUIElement)
+        }
+        return roles
     }
 
     private static func focusedElement() -> AXUIElement? {

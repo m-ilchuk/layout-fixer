@@ -175,6 +175,13 @@ check("typo: close only on the other side converts",
 check("typo: close on both sides stays (тікет ~ пікет, nsrtn ~ nsrtf)",
       stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"], guessLists: ["тікет": ["пікет"]])),
       "notAWordOnOtherLayout")
+// How a fixed word is put in: in one step through Accessibility only in native fields; web pages get keystrokes.
+check("replace: a native text view", "\(ReplaceMethod.forField(roles: ["AXTextArea", "AXScrollArea", "AXWindow"]))",
+      "accessibility")
+check("replace: Gmail in a browser",
+      "\(ReplaceMethod.forField(roles: ["AXTextArea", "AXGroup", "AXWebArea", "AXScrollArea", "AXGroup", "AXWindow"]))",
+      "keystrokes")
+check("replace: nothing known about the field", "\(ReplaceMethod.forField(roles: []))", "keystrokes")
 check("typo: a far guess on this side doesn't hold it back",
       stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"], guessLists: ["тікет": ["квиток"]])),
       "fixed")
