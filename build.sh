@@ -19,9 +19,15 @@ BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist)
 APP=build/LayoutFixer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
+# "==> " lines are progress steps: get.sh shows the latest one while it waits.
+echo "==> Compiling for Apple silicon and Intel"
+PIDS=()
 for ARCH in arm64 x86_64; do
-  "${SWIFTC[@]}" -target "$ARCH-apple-macos$MIN_MACOS" "${CORE[@]}" "${APP_ONLY[@]}" -o "build/LayoutFixer-$ARCH"
+  "${SWIFTC[@]}" -target "$ARCH-apple-macos$MIN_MACOS" "${CORE[@]}" "${APP_ONLY[@]}" -o "build/LayoutFixer-$ARCH" &
+  PIDS+=($!)
 done
+for PID in "${PIDS[@]}"; do wait "$PID" || { echo "build.sh: compiling failed" >&2; exit 1; }; done
+echo "==> Signing"
 lipo -create build/LayoutFixer-arm64 build/LayoutFixer-x86_64 -output "$APP/Contents/MacOS/LayoutFixer"
 cp Info.plist "$APP/Contents/Info.plist"
 # The commit this build comes from, for "Check for Updates" (get.sh passes it; a checkout knows it).

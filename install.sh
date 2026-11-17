@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
+echo "==> Installing to ~/Applications"
 # LAYOUT_FIXER_NO_LAUNCH=1: the running app is updating itself and restarts on its own.
 [[ -n "${LAYOUT_FIXER_NO_LAUNCH:-}" ]] || pkill -x LayoutFixer 2>/dev/null || true
 mkdir -p ~/Applications

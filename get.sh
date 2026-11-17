@@ -43,7 +43,26 @@ trap 'rm -rf "$WORK"' EXIT
 echo "Downloading $SOURCE_URL"
 curl -fsSL "$SOURCE_URL" | tar -xz -C "$WORK" --strip-components 1 || fail "could not download the source."
 echo "Building (about a minute)…"
-"$WORK/install.sh" >"$WORK/build.log" 2>&1 || { cat "$WORK/build.log" >&2; fail "the build failed (log above)."; }
+LOG="$WORK/build.log"
+"$WORK/install.sh" >"$LOG" 2>&1 &
+BUILD=$!
+START=$SECONDS
+SPINNER='-\|/'
+TICK=0
+# One updating line: the build's latest step ("==> Compiling …") and the seconds so far.
+while kill -0 "$BUILD" 2>/dev/null; do
+  if [[ -t 1 ]]; then
+    STEP=$(grep '^==> ' "$LOG" 2>/dev/null | tail -1 | cut -c5- || true)  # no step yet is fine
+    printf '\r  %s %s… %ds   ' "${SPINNER:TICK++%4:1}" "${STEP:-Building}" $((SECONDS - START))
+  fi
+  sleep 0.25
+done
+if ! wait "$BUILD"; then
+  [[ -t 1 ]] && printf '\n'
+  cat "$LOG" >&2
+  fail "the build failed (log above)."
+fi
+if [[ -t 1 ]]; then printf '\r  ✓ Built in %ds%40s\n' $((SECONDS - START)) ""; else echo "Built in $((SECONDS - START))s"; fi
 
 echo
 "$HOME/Applications/LayoutFixer.app/Contents/MacOS/LayoutFixer" --layouts || true
