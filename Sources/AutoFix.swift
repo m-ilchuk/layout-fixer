@@ -72,10 +72,13 @@ enum AutoFix {
                            speller: Speller) -> Bool {
         let typed = word.map(\.text).joined()
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
-        guard looksLikeWord(fixed), !readsAsWord(typed, language: source.language, speller: speller) else { return false }
+        let typedIsWord = !hasLetterKeys(word, on: target) && readsAsWord(typed, language: source.language, speller: speller)
+        guard looksLikeWord(fixed), !typedIsWord else { return false }
         if speller.isValid(fixed, language: target.language) { return true }
-        // Typo: the other language knows a close word, and this language has nothing close to offer.
+        // Typo: the other language knows a close word, and this language has nothing close to offer. Not when
+        // the spell checker takes the typed text as it is ("it's"): then only a real word on the other layout counts.
         return word.count > minimumLength
+            && !speller.isValid(typed, language: source.language)
             && closeCorrection(fixed, language: target.language, speller: speller)
             && !closeCorrection(typed, language: source.language, speller: speller)
     }
@@ -86,13 +89,21 @@ enum AutoFix {
                                         speller: Speller) -> Bool {
         let typed = word.map(\.text).joined()
         let fixed = Converter.retype(word, on: target).map(\.text).joined()
-        let readsAsSource = looksLikeWord(typed)
+        let readsAsSource = looksLikeWord(typed) && !hasLetterKeys(word, on: target)
             && (speller.isValid(typed, language: source.language)
                 || closeCorrection(typed, language: source.language, speller: speller))
         let readsAsTarget = looksLikeWord(fixed)
             && (speller.isValid(fixed, language: target.language)
                 || closeCorrection(fixed, language: target.language, speller: speller))
         return readsAsSource && !readsAsTarget
+    }
+
+    /// Typed with keys that are punctuation here but letters on the other layout ("];fr" is "їжак"): then the
+    /// spell checker's yes means little, since it skips the punctuation and sees only "fr".
+    private static func hasLetterKeys(_ word: ArraySlice<Typed>, on target: KeyLayout) -> Bool {
+        word.contains { typed in
+            typed.text.first?.isLetter == false && target.character(for: typed.stroke)?.first?.isLetter == true
+        }
     }
 
     /// A real word as typed. The spell checker skips punctuation, so "k.,k." ("люблю" typed on English) would pass

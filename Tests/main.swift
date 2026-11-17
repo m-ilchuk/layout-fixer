@@ -126,6 +126,16 @@ check("auto leaves an earlier switch alone", auto("hello ghbdsn", on: english), 
 check("auto fixes en→ru", auto("ghbdtn", on: russianSet.english!, in: russianSet), "привет")
 check("auto keeps a real Russian word", auto("привет", on: russianSet.local!, in: russianSet), "nil")
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
+// Keys that are punctuation in English but letters in Ukrainian, at the start or end of a word.
+check("auto: ];fr → їжак (leading ] and ;)", auto("];fr", on: english), "їжак")
+check("auto: }];fr → Їжак", auto("};fr", on: english), "Їжак")
+check("auto: `fyre → ґанку", auto("`fyre", on: english), "ґанку")
+check("auto: cdj' → своє", auto("cdj'", on: english), "своє")
+check("auto: ,helyt → брудне", auto(",helyt", on: english), "брудне")
+check("auto: the whole phrase", auto("];fr yf `fyre phj,bd cdj' ,helyt lskj", on: english), "їжак на ґанку зробив своє брудне діло")
+check("auto: English it's stays", auto("it's", on: english), "nil")
+check("auto: English (hello) stays", auto("(hello)", on: english), "nil")
+
 // Short words before an auto-fixed word: "з" is a word in Ukrainian and "p" in English, so on its own it stays.
 check("auto: a short word before the fixed one stays", auto("синхронізацію з Сщтіефте", on: ukrainian), "синхронізацію з Constant")
 check("auto: a short word at the start stays", auto("з Сщтіефте", on: ukrainian), "з Constant")
@@ -186,6 +196,23 @@ check("notes: bold", plain(notes[2].runs), "[A settings window.] Click the icon.
 check("notes: code in a bullet", plain(notes[3].runs), "Replaces <LayoutFixer.app>")
 check("notes: • bullet with bold", plain(notes[4].runs), "Turn on [Open at login]")
 check("notes: unclosed markers stay text", plain(ReleaseNotes.runs("2 ** 3 and a ` tick")), "2 ** 3 and a ` tick")
+
+// Update progress, read from the installer's log.
+func progress(_ log: String, _ seconds: Double = 0) -> String {
+    let state = UpdateProgress.state(log: log, compilingFor: seconds, expectedCompile: 40)
+    return "\(state.step) \(state.percent)%"
+}
+check("progress: starting", progress(""), "Starting… 1%")
+check("progress: downloading", progress("Downloading https://…"), "Downloading… 4%")
+check("progress: building, no step yet", progress("Downloading x\nBuilding (about a minute)…"), "Building… 8%")
+let compiling = "Downloading x\nBuilding…\n==> Compiling for Apple silicon and Intel"
+check("progress: compiling, start", progress(compiling, 0), "Compiling for Apple silicon and Intel… 10%")
+check("progress: compiling, halfway", progress(compiling, 20), "Compiling for Apple silicon and Intel… 49%")
+check("progress: compiling never claims done", progress(compiling, 400), "Compiling for Apple silicon and Intel… 86%")
+check("progress: signing", progress(compiling + "\n==> Signing"), "Signing… 90%")
+check("progress: installing", progress(compiling + "\n==> Signing\n==> Installing to ~/Applications"), "Installing… 94%")
+check("progress: built", progress(compiling + "\n==> Installing to ~/Applications\nBuilt in 41s"), "Restarting… 97%")
+check("progress: build time", UpdateProgress.builtSeconds(log: "x\nBuilt in 41s").map(String.init), "41")
 
 // Versions for the update check.
 check("version from a tag", Version("v1.4.2")?.description, "1.4.2")
