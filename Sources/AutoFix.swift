@@ -6,6 +6,15 @@ protocol Speller {
     func supports(_ language: String) -> Bool
     func isValid(_ word: String, language: String) -> Bool
     func correction(for word: String, language: String) -> String?
+    /// The spell checker's suggestions, best first. Its `correction` is often nil where these aren't ("тікет":
+    /// no correction, but "пікет" is the first guess).
+    func guesses(for word: String, language: String) -> [String]
+}
+
+extension Speller {
+    func guesses(for word: String, language: String) -> [String] {
+        correction(for: word, language: language).map { [$0] } ?? []
+    }
 }
 
 struct SystemSpeller: Speller {
@@ -26,6 +35,14 @@ struct SystemSpeller: Speller {
         )
     }
 
+    func guesses(for word: String, language: String) -> [String] {
+        guard let dictionary = dictionary(for: language) else { return [] }
+        let range = NSRange(location: 0, length: (word as NSString).length)
+        return NSSpellChecker.shared.guesses(
+            forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
+        ) ?? []
+    }
+
     /// "uk" → "uk", "pt" → "pt_BR": the macOS dictionary for a layout's language, if there is one.
     private func dictionary(for language: String) -> String? {
         let available = NSSpellChecker.shared.availableLanguages
@@ -38,6 +55,8 @@ struct SystemSpeller: Speller {
 /// "hey everone how" and not "рун умукщту how".
 enum AutoFix {
     static let minimumLength = 3
+    /// How many of the spell checker's guesses count when asking whether typed text is a typo where it was typed.
+    static let guessesConsidered = 3
     /// How far a spell-checker correction may be to count as a typo of a real word ("everone" → "everyone"):
     /// none for short words, where nearly anything is that close to some word ("lkz" → "lap").
     static func maximumTypoDistance(forLength length: Int) -> Int {
@@ -122,10 +141,11 @@ enum AutoFix {
         if speller.isValid(fixed, language: target.language) { return nil }
         // Typo: the other language knows a close word, and this language has nothing close to offer. Not when
         // the spell checker takes the typed text as it is ("it's"): then only a real word on the other layout counts.
+        // Close on both sides ("тікет" is one letter from "пікет", "nsrtn" one from "nsrtf"), it stays as typed.
         let typo = word.count > minimumLength
             && !speller.isValid(typed, language: source.language)
             && closeCorrection(fixed, language: target.language, speller: speller)
-            && !closeCorrection(typed, language: source.language, speller: speller)
+            && !nearAWord(typed, language: source.language, speller: speller)
         return typo ? nil : .notAWordOnOtherLayout
     }
 
@@ -141,6 +161,7 @@ enum AutoFix {
         let typed = word.map(\.text).joined()
         let typedIsWord = !hasLetterKeys(word, on: target) && readsAsWord(typed, language: source.language, speller: speller)
         return !typedIsWord && closeCorrection(fixed, language: target.language, speller: speller)
+            && !nearAWord(typed, language: source.language, speller: speller)
     }
 
     /// When the finished word stays, the short words right before it, if each is a word only on the other layout:
@@ -223,6 +244,17 @@ enum AutoFix {
         guard let correction = speller.correction(for: word, language: language) else { return false }
         let letters = word.filter(\.isLetter).count
         return editDistance(word.lowercased(), correction.lowercased()) <= maximumTypoDistance(forLength: letters)
+    }
+
+    /// The typed text may be a typo where it was typed: its correction or one of the first guesses is within a
+    /// typo's distance. Looser than `closeCorrection` on purpose: a doubt keeps the word as typed.
+    private static func nearAWord(_ word: String, language: String, speller: Speller) -> Bool {
+        guard looksLikeWord(word) else { return false }
+        let letters = word.filter(\.isLetter).count
+        let limit = maximumTypoDistance(forLength: letters)
+        let candidates = [speller.correction(for: word, language: language)].compactMap { $0 }
+            + speller.guesses(for: word, language: language).prefix(guessesConsidered)
+        return candidates.contains { editDistance(word.lowercased(), $0.lowercased()) <= limit }
     }
 
     /// The words of the buffer (runs between spaces), as index ranges.

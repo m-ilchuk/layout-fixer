@@ -20,6 +20,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 - Fixing a word no longer leaves stray letters behind (`ghпройшла`, `jо десятій`): apps could drop some of the
   quick backspaces. Where the app allows it, the word is now replaced in one step through Accessibility and read
   back; elsewhere the keystrokes are slower.
+- A word that's a near miss in both languages stays as typed: `тікет` (one letter from `пікет`) no longer turns into
+  `nsrtn` because macOS's English spell checker offers `nsrtf` for it.
 - **Export Debug Log…** keeps the whole day: Layout Fixer's log lines are now kept on disk by macOS, not only
   briefly in memory.
 

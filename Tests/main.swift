@@ -147,6 +147,30 @@ check("skip: not a word on Ukrainian either", skip("qxzv", on: english), "notAWo
 check("skip: nothing typed before the space", skip("ghbdsn ", on: english), "noWord")
 check("skip: converts", skip("ghbdsn", on: english), "fixed")
 
+// The typo rule with fixed spell-checker answers: macOS's own dictionaries change with updates and what the Mac
+// learns (in November 2026 its English checker started taking "nsrtf" as a word and offering it for "nsrtn").
+struct StubSpeller: Speller {
+    var corrections: [String: String] = [:]
+    var guessLists: [String: [String]] = [:]
+    func supports(_ language: String) -> Bool { true }
+    func isValid(_ word: String, language: String) -> Bool { false }
+    func correction(for word: String, language: String) -> String? { corrections[word] }
+    func guesses(for word: String, language: String) -> [String] { guessLists[word] ?? [] }
+}
+func stubSkip(_ text: String, on layout: KeyLayout, _ speller: StubSpeller) -> String {
+    let decision = AutoFix.decide(buffer: typed(text, on: layout), layouts: ukrainianSet, speller: speller)
+    if case .skip(let reason) = decision { return "\(reason)" }
+    return "fixed"
+}
+check("typo: close only on the other side converts",
+      stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"])), "fixed")
+check("typo: close on both sides stays (тікет ~ пікет, nsrtn ~ nsrtf)",
+      stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"], guessLists: ["тікет": ["пікет"]])),
+      "notAWordOnOtherLayout")
+check("typo: a far guess on this side doesn't hold it back",
+      stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"], guessLists: ["тікет": ["квиток"]])),
+      "fixed")
+
 // A phrase that switches layouts word by word: "Інтеграція з Stripe" right, then "ghjqikf ecgsiyj" on English.
 let stripeStart = typed("Інтеграція з ", on: ukrainian) + typed("Stripe ", on: english)
 func autoFrom(_ prefix: [Typed], _ word: String, on layout: KeyLayout) -> String? {
@@ -449,7 +473,7 @@ let knownNeverSwitchMisses: [String: String] = [
     "Подивись логи в Datadog.": "\"Datadog\" is a name",
     "Помилка в production, треба hotfix.": "\"hotfix\" isn't in the English dictionary",
     "Налаштуй CI для нового репозиторію.": "\"CI\" is an acronym",
-    "У Jira створив тікет для API.": "\"Jira\" is a name (from Ukrainian)",
+    "У Jira створив тікет для API.": "\"Jira\" is a name (from Ukrainian); \"тікет\" isn't in the dictionary (from English)",
 ]
 
 // Typed on the right layout, every sentence must come out untouched. Never switching, every sentence must come
@@ -483,6 +507,15 @@ for scenario in CorpusScenario.allCases {
 }
 print("corpus results:\n  " + corpusTotals.joined(separator: "\n  "))
 print("known limits (right ⌥ fixes them):\n  " + knownNeverSwitchMisses.map { "\($0.key)  — \($0.value)" }.sorted().joined(separator: "\n  "))
+// What the simulated Mac shows for each known limit, to set beside build/e2e-report.txt: the same text there
+// means the simulator models the real Mac for that sentence.
+for scenario in [CorpusScenario.neverSwitchesFromEnglish, .neverSwitchesFromUkrainian] {
+    let shown = knownNeverSwitchMisses.keys.sorted().compactMap { sentence -> String? in
+        let screen = typeSentence(sentence, scenario, chainConditions[0])
+        return screen == sentence ? nil : "got:  \(screen)\n    want: \(sentence)"
+    }
+    print("known limits, \(scenario.name):\n    " + shown.joined(separator: "\n    "))
+}
 
 // Release notes as the update dialog shows them.
 func plain(_ runs: [ReleaseNotes.Run]) -> String {
