@@ -118,7 +118,8 @@ final class Fixer {
         }
         let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
         guard let edit = session.type(stroke, eventCharacters: Self.characters(of: event),
-                                      reportedLayoutID: KeyLayout.currentLayoutID())
+                                      reportedLayoutID: KeyLayout.currentLayoutID(),
+                                      screenBeforeCursor: Selection.textBeforeCursor)
         else { return true }
         apply(edit)
         return false  // the edit types the Space
@@ -300,6 +301,21 @@ enum Selection {
         }
         guard pasted.count <= maxReselectByArrows else { return }
         Typist.selectBackward(count: pasted.count)
+    }
+
+    /// The `length` characters before the cursor in the focused field, when the app shares its text (most native
+    /// apps do; some browsers and Electron apps don't). Nil when it can't tell, or when text is selected.
+    static func textBeforeCursor(_ length: Int) -> String? {
+        guard length > 0, let element = focusedElement(), let range = selectedRange(in: element),
+              range.length == 0, range.location >= length
+        else { return nil }
+        var before = CFRange(location: range.location - length, length: length)
+        guard let value = AXValueCreate(.cfRange, &before) else { return nil }
+        var text: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                element, kAXStringForRangeParameterizedAttribute as CFString, value, &text) == .success
+        else { return nil }
+        return text as? String
     }
 
     private static func selectedRange(in element: AXUIElement) -> CFRange? {

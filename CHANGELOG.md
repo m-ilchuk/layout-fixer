@@ -7,6 +7,14 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Fixes
+- Fix while typing checks the screen before fixing a word: right after you switch the layout, macOS can still report
+  the old one for a few keys, so a word was recorded half on each layout and left alone ("sometimes works,
+  sometimes not"). It now reads the text before the cursor (in apps that share it) and goes by what's shown; in
+  apps that don't, a word on two layouts goes by its last key.
+- When the screen doesn't show the keys you typed (an app closed a bracket, made a quote curly or autocorrected),
+  the word is left alone instead of erasing the wrong characters.
+
 ## 0.2.6 — 2026-11-17
 
 ### Fixes

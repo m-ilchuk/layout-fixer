@@ -220,23 +220,37 @@ final class SimulatedMac {
     private let staleEventText: Bool
     private var beforeAppSwitch: KeyLayout?
 
+    /// macOS's report and notice lag behind the person's own switches too (seen on a real Mac: a word recorded
+    /// half on Ukrainian, half on ABC, after switching to ABC).
+    private let lateAfterOwnSwitch: Bool
+    /// The app shares the text before the cursor (Accessibility), as most native apps do.
+    private let screenReadable: Bool
+
     init(_ layouts: LayoutSet, startOn: KeyLayout, reportLag: Int = 0, eventCharacters: Bool = true,
-         staleEventText: Bool = false) {
+         staleEventText: Bool = false, lateAfterOwnSwitch: Bool = false, screenReadable: Bool = false) {
         actual = startOn
         reported = startOn
         self.reportLag = reportLag
         self.eventCharacters = eventCharacters
         self.staleEventText = staleEventText
+        self.lateAfterOwnSwitch = lateAfterOwnSwitch
+        self.screenReadable = screenReadable
         session = TypingSession(layouts: layouts, currentLayoutID: startOn.id)
         session.autoFix = true
     }
 
     /// The person switches the layout (⌃Space); `notice` is whether the app hears macOS announce it.
     func personSwitches(to layout: KeyLayout, notice: Bool) {
+        beforeAppSwitch = nil
+        if lateAfterOwnSwitch && reportLag > 0 {
+            reported = actual   // still the old one for `reportLag` keys, and no notice
+            actual = layout
+            lagLeft = reportLag
+            return
+        }
         actual = layout
         reported = layout
         lagLeft = 0
-        beforeAppSwitch = nil
         if notice { session.layoutChanged(to: layout.id) }
     }
 
@@ -253,7 +267,10 @@ final class SimulatedMac {
         let reportedID: String
         if lagLeft > 0 { reportedID = reported.id; lagLeft -= 1 } else { reported = actual; reportedID = actual.id }
         let eventText = staleEventText ? (beforeAppSwitch ?? actual).character(for: stroke) : char
-        guard let edit = session.type(stroke, eventCharacters: eventCharacters ? eventText : nil, reportedLayoutID: reportedID)
+        let shown = screen
+        let readScreen: ((Int) -> String?)? = screenReadable ? { count in String(shown.suffix(count)) } : nil
+        guard let edit = session.type(stroke, eventCharacters: eventCharacters ? eventText : nil,
+                                      reportedLayoutID: reportedID, screenBeforeCursor: readScreen)
         else { screen += char; return }
         screen.removeLast(edit.erase)
         screen += edit.text
@@ -268,15 +285,34 @@ final class SimulatedMac {
 /// Every chain runs five ways: no lag; macOS reporting the old layout for 3 keys after a switch; that lag with no
 /// character in the key events; key events carrying the old layout's character after the app's switch (as on a
 /// real Mac); and both. Only the app's own record of its switch, and macOS's report after that, may be trusted.
-let chainConditions: [(name: String, lag: Int, eventCharacters: Bool, stale: Bool)] = [
-    ("no lag", 0, true, false), ("late report", 3, true, false), ("late report, no event text", 3, false, false),
-    ("stale event text", 0, true, true), ("stale event text, late report", 3, true, true),
+struct MacCondition {
+    let name: String
+    var lag = 0
+    var eventCharacters = true
+    var stale = false
+    var lateAfterOwnSwitch = false
+    var screenReadable = false
+
+    func mac(_ layouts: LayoutSet, startOn: KeyLayout) -> SimulatedMac {
+        SimulatedMac(layouts, startOn: startOn, reportLag: lag, eventCharacters: eventCharacters, staleEventText: stale,
+                     lateAfterOwnSwitch: lateAfterOwnSwitch, screenReadable: screenReadable)
+    }
+}
+let chainConditions: [MacCondition] = [
+    MacCondition(name: "no lag"),
+    MacCondition(name: "late report", lag: 3),
+    MacCondition(name: "late report, no event text", lag: 3, eventCharacters: false),
+    MacCondition(name: "stale event text", stale: true),
+    MacCondition(name: "stale event text, late report", lag: 3, stale: true),
+    MacCondition(name: "late report after your own switch", lag: 3, lateAfterOwnSwitch: true),
+    MacCondition(name: "late report after your own switch, screen readable", lag: 3, lateAfterOwnSwitch: true,
+                 screenReadable: true),
+    MacCondition(name: "stale event text, late report, screen readable", lag: 3, stale: true, screenReadable: true),
 ]
 func chain(_ name: String, startOn: KeyLayout, _ words: [(String, KeyLayout)], expect: String,
            in layouts: LayoutSet = ukrainianSet) {
     for condition in chainConditions {
-        let mac = SimulatedMac(layouts, startOn: startOn, reportLag: condition.lag,
-                               eventCharacters: condition.eventCharacters, staleEventText: condition.stale)
+        let mac = condition.mac(layouts, startOn: startOn)
         mac.type(words)
         check("chain, \(condition.name): \(name)", mac.screen, expect + " ")
     }
@@ -323,6 +359,15 @@ chain("русский текст и English (Russian)", startOn: russianSet.engl
       [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
       expect: "привет мир hello world", in: russianSet)
 
+// Switching yourself, macOS late to tell, then a word on the wrong layout: it's recorded half on each layout.
+for condition in chainConditions {
+    let mac = condition.mac(ukrainianSet, startOn: ukrainian)
+    mac.type([("привіт", ukrainian)])
+    mac.personSwitches(to: english, notice: false)
+    mac.type([("світ", ukrainian), ("hello", english)])
+    check("chain, \(condition.name): own switch to English, then світ typed on it", mac.screen, "привіт світ hello ")
+}
+
 // The person switches the layout themselves: what they type on it stays, with or without macOS's notice.
 for notice in [true, false] {
     for eventCharacters in [true, false] {
@@ -357,8 +402,7 @@ enum CorpusScenario: CaseIterable {
 }
 
 /// Types one sentence and returns the screen (without the final Space).
-func typeSentence(_ sentence: String, _ scenario: CorpusScenario,
-                  _ condition: (name: String, lag: Int, eventCharacters: Bool, stale: Bool)) -> String {
+func typeSentence(_ sentence: String, _ scenario: CorpusScenario, _ condition: MacCondition) -> String {
     let words = sentence.split(separator: " ").map(String.init)
     let first = words.compactMap(meantLayout).first ?? english
     let start: KeyLayout
@@ -367,8 +411,7 @@ func typeSentence(_ sentence: String, _ scenario: CorpusScenario,
     case .neverSwitchesFromEnglish: start = english
     case .neverSwitchesFromUkrainian: start = ukrainian
     }
-    let mac = SimulatedMac(ukrainianSet, startOn: start, reportLag: condition.lag,
-                           eventCharacters: condition.eventCharacters, staleEventText: condition.stale)
+    let mac = condition.mac(ukrainianSet, startOn: start)
     for word in words {
         let meant = meantLayout(word) ?? mac.actualLayout
         let switches = scenario == .switchesWithNotice || scenario == .switchesWithoutNotice

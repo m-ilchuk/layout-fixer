@@ -80,7 +80,8 @@ final class TypingSession {
     /// the old layout's character for whole words after the app's own switch ("key typed on Ukrainian-PC while the
     /// app had ABC"), so trusting it lost those words. Returns an edit when this Space finishes a word to fix: the
     /// app then swallows the Space, since the edit types it.
-    func type(_ stroke: KeyStroke, eventCharacters: String?, reportedLayoutID: String?) -> Edit? {
+    func type(_ stroke: KeyStroke, eventCharacters: String?, reportedLayoutID: String?,
+              screenBeforeCursor: ((Int) -> String?)? = nil) -> Edit? {
         guard let layout = typingLayout(reported: reportedLayoutID) else {
             reset("typing on a layout Layout Fixer doesn't use")
             return nil
@@ -94,7 +95,13 @@ final class TypingSession {
             log("key event text is from another layout than \(layout.id) (ignored)")
         }
         if text == " " { loggedEventMismatch = false }
-        if text == " " && autoFix, let edit = fixWordBeforeSpace() { return edit }
+        if text == " " && autoFix {
+            if settleLastWord(screenBeforeCursor) {
+                if let edit = fixWordBeforeSpace() { return edit }
+            } else {
+                reset("the app changing the text")
+            }
+        }
         buffer.append(Typed(stroke: stroke, layoutID: layout.id, text: text))
         if buffer.count > TypingSession.maxRemembered { buffer.removeFirst(buffer.count - TypingSession.maxRemembered) }
         return nil
@@ -126,6 +133,37 @@ final class TypingSession {
             layoutChanged(to: reported)
         }
         return currentLayoutID.flatMap { layouts.layout(id: $0) }
+    }
+
+    /// Before deciding on the finished word, make the memory say what was really typed. The layout macOS reports
+    /// (and the text in key events) can lag behind a switch, so a word may be recorded half on each layout. The
+    /// screen settles it when the app shares the text before the cursor: the layout whose reading of the keys
+    /// is what's shown. When neither is (an app closed a bracket, made a quote curly, autocorrected), the word is
+    /// left alone: false. Without the screen, a word on two layouts goes by its last key, as a late report only
+    /// gets the first keys wrong.
+    private func settleLastWord(_ screenBeforeCursor: ((Int) -> String?)?) -> Bool {
+        guard let range = AutoFix.wordRanges(in: buffer).last, range.upperBound == buffer.count else { return true }
+        let word = buffer[range]
+        if let shown = screenBeforeCursor?(word.count) {
+            guard let layout = layouts.layouts.first(where: { Converter.retype(word, on: $0).map(\.text).joined() == shown })
+            else {
+                log("auto-fix skipped: the screen doesn't show the typed keys, the app changed the text (\(word.count) keys)")
+                return false
+            }
+            settle(range, on: layout, by: "the screen")
+            return true
+        }
+        if Set(word.map(\.layoutID)).count > 1, let id = word.last?.layoutID, let layout = layouts.layout(id: id) {
+            settle(range, on: layout, by: "its last key")
+        }
+        return true
+    }
+
+    private func settle(_ range: Range<Int>, on layout: KeyLayout, by reason: String) {
+        guard buffer[range].contains(where: { $0.layoutID != layout.id }) else { return }
+        buffer.replaceSubrange(range, with: Converter.retype(buffer[range], on: layout))
+        log("word of \(range.count) keys was really typed on \(layout.id) (by \(reason))")
+        if currentLayoutID != layout.id { layoutChanged(to: layout.id) }
     }
 
     /// Fix-while-typing: on Space, the word just finished (and the words before it on the same wrong layout).
