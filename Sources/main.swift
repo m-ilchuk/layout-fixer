@@ -382,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
         refreshIcon()
         startTap()
-        updater.onChange = { [weak self] in self?.rebuildMenu() }
+        updater.onChange = { [weak self] in self?.rebuildMenu(); self?.refreshIcon() }
         updater.start()
     }
 
@@ -441,7 +441,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A small keyboard icon; a warning sign (shown even when hidden) while Accessibility is not allowed.
     private func refreshIcon() {
         guard let button = statusItem.button else { return }
-        let symbol = waitingForAccess ? "exclamationmark.triangle" : "keyboard"
+        let symbol = waitingForAccess ? "exclamationmark.triangle"
+            : updater.installing ? "arrow.triangle.2.circlepath" : "keyboard"
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Layout Fixer")
         button.image?.isTemplate = true
         button.title = ""
@@ -449,13 +450,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.toolTip = waitingForAccess
             ? "Layout Fixer: allow it in System Settings › Privacy & Security › Accessibility"
             : (fixer.enabled ? "Layout Fixer" : "Layout Fixer (off)")
-        statusItem.isVisible = waitingForAccess || !hideIcon
+        statusItem.isVisible = waitingForAccess || updater.installing || !hideIcon
     }
 
     private func rebuildMenu() {
         let menu = NSMenu()
-        if case .available(let changes) = updater.status {
-            menu.addItem(item("Install update (\(changes) new change\(changes == 1 ? "" : "s"))…", action: #selector(installUpdate)))
+        menu.autoenablesItems = false  // keep "Check for Updates…" disabled while an update installs
+        if updater.installing {
+            menu.addItem(info("Updating… (about a minute; restarts by itself)"))
+            menu.addItem(.separator())
+        } else if case .available(let release) = updater.status {
+            menu.addItem(item("Install version \(release.version)…", action: #selector(installUpdate)))
             menu.addItem(.separator())
         }
         menu.addItem(info(Setup.pairLine(fixer.layouts)))
@@ -471,9 +476,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(toggle("Show a flash when fixing", on: Flash.shared.enabled, action: #selector(toggleFlash)))
         menu.addItem(item("Hide menu bar icon", action: #selector(hideMenuBarIcon)))
         menu.addItem(.separator())
-        menu.addItem(item("Check for Updates…", action: #selector(checkForUpdates)))
+        let check = item("Check for Updates…", action: #selector(checkForUpdates))
+        check.isEnabled = !updater.installing
+        menu.addItem(check)
         menu.addItem(toggle("Check for updates automatically", on: updater.automatic, action: #selector(toggleAutoUpdate)))
-        menu.addItem(info("Version \(Updater.currentCommit.map { String($0.prefix(7)) } ?? "local build")"))
+        let commit = Updater.currentCommit.map { " (\($0.prefix(7)))" } ?? ""
+        menu.addItem(info("Version \(Updater.currentVersion?.description ?? "?")\(commit)"))
         menu.addItem(.separator())
         menu.addItem(item("Privacy settings…", action: #selector(openPrivacy)))
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
@@ -515,10 +523,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func installUpdate() {
-        guard case .available(let changes) = updater.status else { return }
+        guard !updater.installing, case .available(let release) = updater.status else { return }
+        let notes = release.notes.split(separator: "\n").prefix(8).joined(separator: "\n")
         let alert = NSAlert()
-        alert.messageText = "Install the new version of Layout Fixer?"
-        alert.informativeText = "\(changes) new change\(changes == 1 ? "" : "s") on GitHub. It downloads, builds on this Mac "
+        alert.messageText = "Install Layout Fixer \(release.version)?"
+        alert.informativeText = (notes.isEmpty ? "" : notes + "\n\n") + "It downloads, builds on this Mac "
             + "(about a minute) and restarts by itself. macOS then asks you to allow it in Accessibility again: "
             + "remove the old LayoutFixer from that list with – and add it again with +."
         alert.addButton(withTitle: "Install")

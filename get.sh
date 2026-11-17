@@ -7,7 +7,7 @@
 set -euo pipefail
 
 REPO="m-ilchuk/layout-fixer"
-REF="${LAYOUT_FIXER_REF:-main}"
+REF="${LAYOUT_FIXER_REF:-latest}"
 MIN_MACOS_MAJOR=13
 
 fail() { echo "Layout Fixer: $*" >&2; exit 1; }
@@ -25,17 +25,17 @@ fi
 UPDATING=0
 [[ -d ~/Applications/LayoutFixer.app ]] && UPDATING=1
 
-# The exact commit, so the app's "Check for Updates" knows which version it is.
-if [[ -z "${LAYOUT_FIXER_SOURCE_URL:-}" ]]; then
-  COMMIT=$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$REF" 2>/dev/null || true)
-  if [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-    export LAYOUT_FIXER_COMMIT="$COMMIT"
-    SOURCE_URL="https://github.com/$REPO/archive/$COMMIT.tar.gz"
-  else
-    SOURCE_URL="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
-  fi
-else
+# The latest release (v1.2.0, …); LAYOUT_FIXER_REF=main installs the newest code instead.
+if [[ -n "${LAYOUT_FIXER_SOURCE_URL:-}" ]]; then
   SOURCE_URL="$LAYOUT_FIXER_SOURCE_URL"
+else
+  if [[ "$REF" == "latest" ]]; then
+    TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+      | sed -n 's/^ *"tag_name": *"\([^"]*\)".*/\1/p' | head -1 || true)
+    REF="${TAG:-main}"  # no release published yet: the newest code
+  fi
+  SOURCE_URL="https://github.com/$REPO/archive/$REF.tar.gz"
+  echo "Installing Layout Fixer $REF"
 fi
 
 WORK=$(mktemp -d)

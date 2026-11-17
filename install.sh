@@ -3,9 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
-pkill -x LayoutFixer 2>/dev/null || true
+# LAYOUT_FIXER_NO_LAUNCH=1: the running app is updating itself and restarts on its own.
+[[ -n "${LAYOUT_FIXER_NO_LAUNCH:-}" ]] || pkill -x LayoutFixer 2>/dev/null || true
 mkdir -p ~/Applications
 rm -rf ~/Applications/LayoutFixer.app
 cp -R build/LayoutFixer.app ~/Applications/
-open ~/Applications/LayoutFixer.app
+[[ -n "${LAYOUT_FIXER_NO_LAUNCH:-}" ]] || open ~/Applications/LayoutFixer.app
 echo "installed ~/Applications/LayoutFixer.app"

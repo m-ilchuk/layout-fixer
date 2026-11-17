@@ -98,5 +98,13 @@ check("auto keeps a real Russian word", auto("привет", on: russianSet.loca
 check("auto fixes en→el", auto("kalhmera", on: greekSet.english!, in: greekSet), "καλημερα")
 check("edit distance", String(AutoFix.editDistance("everone", "everyone")), "1")
 
+// Versions for the update check.
+check("version from a tag", Version("v1.4.2")?.description, "1.4.2")
+check("version pads missing parts", Version("2.1")?.description, "2.1.0")
+check("version ignores a pre-release suffix", Version("1.5.0-beta.1")?.description, "1.5.0")
+check("version rejects junk", Version("latest")?.description, "nil")
+check("1.10.0 is newer than 1.9.3", String(Version("1.10.0")! > Version("1.9.3")!), "true")
+check("1.0.0 is not newer than 1.0.0", String(Version("v1.0.0")! > Version("1.0.0")!), "false")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

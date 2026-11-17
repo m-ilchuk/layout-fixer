@@ -10,15 +10,16 @@ language (Ukrainian, Russian, Greek, Bulgarian, Hebrew, German, …), then switc
 curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh | bash
 ```
 
-It downloads the source, builds it on your Mac (it needs Apple's free command line tools and offers to install them),
+It downloads the source of the latest release, builds it on your Mac (it needs Apple's free command line tools and offers to install them),
 puts **LayoutFixer** in `~/Applications`, starts it and prints the layouts it found, for example
 `Switches ABC ↔ Ukrainian`. Then:
 
 1. Allow it in System Settings › Privacy & Security › **Accessibility**. It starts working within a few seconds.
 2. Optional: menu bar item › **Open at login**.
 
-To update, use **Install update** in its menu (it checks GitHub once a day, or on **Check for Updates…**), or run
-the same command again. macOS sees each new build as a new app, so remove LayoutFixer from the Accessibility list
+To update, use **Install version X.Y.Z** in its menu (it checks GitHub Releases once a day, or on **Check for
+Updates…**; it restarts by itself), or run the same command again. To try the newest unreleased code, put
+`LAYOUT_FIXER_REF=main` before `bash`. macOS sees each new build as a new app, so remove LayoutFixer from the Accessibility list
 with **–** and add `~/Applications/LayoutFixer.app` again with **+**.
 
 To uninstall, quit it from its menu, delete `~/Applications/LayoutFixer.app` and remove it from the Accessibility list.
@@ -93,3 +94,16 @@ to be allowed again. A local certificate fixes that (one time, about a minute):
 4. `./install.sh` (it prints `signed with LayoutFixer Local Signing`), then allow LayoutFixer one last time.
 
 `build.sh` uses the certificate whenever it finds it, and signs ad-hoc otherwise.
+
+### Release
+
+Versions follow [semantic versioning](https://semver.org): **MAJOR** when something people rely on changes or goes
+away (a hotkey, a setting), **MINOR** for new features, **PATCH** for fixes.
+
+```bash
+./release.sh 1.2.0
+```
+
+It checks that `main` is clean and pushed, runs the tests, sets the version in `Info.plist`, commits, tags `v1.2.0`,
+pushes, and creates the GitHub Release with notes from the commits since the last one. Installed copies offer it
+within a day, and the installer installs it from then on.
