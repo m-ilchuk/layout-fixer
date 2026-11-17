@@ -19,7 +19,7 @@ A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and 
    curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh | bash
    ```
 
-   It downloads the latest release, builds it on your Mac (about a minute) and starts it. Building needs Apple's
+   It downloads the latest release, builds it on your Mac (under a minute; updates take seconds) and starts it. Building needs Apple's
    free command line tools: if they're missing, a window offers to install them. Click **Install**, wait for it to
    finish, then paste the line again.
 3. **Allow it.** The Layout Fixer window opens, and a dialog says *"Layout Fixer" would like to control this
@@ -150,7 +150,8 @@ sign them with a local certificate (see Develop below).
 ```bash
 git clone https://github.com/m-ilchuk/layout-fixer.git && cd layout-fixer
 ./build.sh --test   # tests (uses layouts macOS ships, so any Mac can run them)
-./install.sh        # build for Apple silicon + Intel, copy to ~/Applications, start
+./install.sh        # build for this Mac's chip, copy to ~/Applications, start
+LAYOUT_FIXER_UNIVERSAL=1 ./build.sh   # one app for Apple silicon and Intel, to hand to anyone
 ```
 
 ### Keep permissions across rebuilds
