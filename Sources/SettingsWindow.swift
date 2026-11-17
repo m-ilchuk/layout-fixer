@@ -124,8 +124,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
 
         let notch = NSTextField(wrappingLabelWithString:
-            "Can't see the keyboard icon in the menu bar? On MacBooks with a notch, macOS hides icons that don't "
-            + "fit. Open LayoutFixer again (Spotlight) to get back to this window.")
+            "Click the keyboard icon in the menu bar to get back here (right-click it for a short menu). Can't "
+            + "see it? On MacBooks with a notch, macOS hides icons that don't fit: open LayoutFixer again "
+            + "(Spotlight) instead.")
         notch.textColor = .secondaryLabelColor
         notch.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
 

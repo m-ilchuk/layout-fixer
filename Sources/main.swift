@@ -412,9 +412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var settingsWindow = SettingsWindow(settings: settings, status: { [unowned self] in self.status() },
                                                      update: { [unowned self] in self.updateFromWindow() })
 
-    /// Every on/off setting, in the order the window shows them (the menu leaves out the icon one).
+    /// Every on/off setting, in the order the window shows them (the quick menu has only Enabled).
     private lazy var settings: [Setting] = [
-        Setting(title: "Enabled", isOn: { fixer.enabled }, set: { [unowned self] on in
+        Setting(title: AppDelegate.enabledSettingTitle, isOn: { fixer.enabled }, set: { [unowned self] on in
             fixer.enabled = on
             fixer.reset()
             self.refreshIcon()
@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Setting(title: "Check for updates automatically", isOn: { [unowned self] in self.updater.automatic },
                 set: { [unowned self] on in self.updater.automatic = on }),
     ]
-    private static let iconSettingTitle = "Show icon in menu bar"
+    private static let enabledSettingTitle = "Enabled"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         fixer.reloadLayouts()
@@ -444,7 +444,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset() }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        rebuildMenu()
+        // Click: the settings window. Right-click or ⌥-click: a short menu.
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         refreshIcon()
         startTap()
         updater.onChange = { [weak self] in self?.changed(); self?.refreshIcon() }
@@ -467,9 +470,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
-    /// Something the menu and the window show changed.
+    /// Something the window shows changed (the quick menu is built each time it opens).
     private func changed() {
-        rebuildMenu()
         settingsWindow.refresh()
     }
 
@@ -553,9 +555,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.isVisible = waitingForAccess || updater.installing || !hideIcon
     }
 
-    private func rebuildMenu() {
+    @objc private func statusItemClicked() {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.option) == true {
+            showQuickMenu()
+        } else {
+            settingsWindow.show()
+        }
+    }
+
+    /// Right-click on the icon: pause it, install an update, open the window or quit, without the window.
+    private func showQuickMenu() {
         let menu = NSMenu()
-        menu.autoenablesItems = false  // keep "Check for Updates…" disabled while an update installs
+        menu.autoenablesItems = false
         if updater.installing {
             menu.addItem(info("Updating… (about a minute; restarts by itself)"))
             menu.addItem(.separator())
@@ -563,27 +575,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item("Install version \(release.version)…", action: #selector(installUpdate)))
             menu.addItem(.separator())
         }
-        menu.addItem(info(Setup.pairLine(fixer.layouts)))
-        menu.addItem(.separator())
-        menu.addItem(info("Tap right ⌥: convert the selected text,"))
-        menu.addItem(info("    or the last word you typed"))
-        menu.addItem(info("Tap again: convert it back"))
-        menu.addItem(.separator())
-        for (index, setting) in settings.enumerated() where setting.title != AppDelegate.iconSettingTitle {
-            let entry = toggle(setting.title, on: setting.isOn(), action: #selector(toggleSetting(_:)))
-            entry.tag = index
+        if let enabled = settings.firstIndex(where: { $0.title == AppDelegate.enabledSettingTitle }) {
+            let entry = toggle(settings[enabled].title, on: settings[enabled].isOn(), action: #selector(toggleSetting(_:)))
+            entry.tag = enabled
             menu.addItem(entry)
         }
-        menu.addItem(item("Hide menu bar icon", action: #selector(hideMenuBarIcon)))
-        menu.addItem(.separator())
-        let check = item("Check for Updates…", action: #selector(checkForUpdates))
-        check.isEnabled = !updater.installing
-        menu.addItem(check)
-        menu.addItem(info("Version \(status().version)"))
-        menu.addItem(.separator())
         menu.addItem(item("Settings…", action: #selector(showSettings), key: ","))
+        menu.addItem(.separator())
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
+        // Attach the menu just for this click, so a plain click keeps opening the window.
         statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     private func info(_ title: String) -> NSMenuItem {
@@ -644,17 +647,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = detail
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
-    }
-
-    @objc private func hideMenuBarIcon() {
-        let alert = NSAlert()
-        alert.messageText = "Hide the Layout Fixer icon?"
-        alert.informativeText = "Layout Fixer keeps working. To get to its settings, open Layout Fixer again "
-            + "(Spotlight: “LayoutFixer”, or ~/Applications)."
-        alert.addButton(withTitle: "Hide")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn { hideIcon = true; changed() }
     }
 
     private func setOpenAtLogin(_ on: Bool) {

@@ -31,7 +31,7 @@ A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and 
 4. Within a few seconds the window says **✓ Allowed in Accessibility** and the menu bar icon changes from ⚠ to ⌨.
    Done.
 
-Optional: ⌨ menu › **Open at login** to start it with your Mac.
+Optional: in the same window, turn on **Open at login** to start it with your Mac.
 
 ## Use
 
@@ -49,13 +49,14 @@ now Ukrainian. Tap again and it's back to `ghbdsn`.
 
 ## Settings
 
-Open **LayoutFixer** again (Spotlight or `~/Applications`) to get its window; the ⌨ menu bar icon has the same
-settings plus **Settings…**.
+Click the ⌨ icon in the menu bar, or open **LayoutFixer** again (Spotlight or `~/Applications`), to get its window.
+Right-click the icon for a short menu: **Enabled**, **Settings…** and **Quit**.
 
 <img src="docs/settings.png" width="460" alt="The Layout Fixer window: Accessibility status, how to use it, the layout pair and the settings">
 
+In the window:
 
-- **Switches ABC ↔ Ukrainian** (first line): the two layouts it uses now.
+- **Switches ABC ↔ Ukrainian**: the two layouts it uses now.
 - **Enabled**: pause it without quitting.
 - **Fix automatically while typing (beta)**, off by default: when you finish a word with Space and it only makes
   sense on the other layout (checked with the macOS dictionaries, typos allowed), it is retyped without a tap,
@@ -78,7 +79,8 @@ language without one it only fixes words that should be English; the right ⌥ k
 
 ## Update
 
-When a new version is out, the ⌨ menu shows **Install version X.Y.Z…**. Click it, read what's new and click
+When a new version is out, the window's update button (and the right-click menu) says **Install version X.Y.Z…**.
+Click it, read what's new and click
 **Install**: it downloads, builds and restarts by itself in about a minute (the icon shows ⟳ meanwhile).
 
 **After every update, allow it again.** macOS sees each new build as a new app: in Privacy & Security ›
@@ -101,7 +103,7 @@ You can also update by running the install line again.
 - **Wrong text in a browser or chat app.** Some apps don't tell macOS what is selected. Layout Fixer then copies the
   selection, converts it and pastes it back (your clipboard is restored after). Tap once and wait half a second
   before tapping again.
-- **It converts to the wrong language.** Check the first line of the ⌨ menu. If it isn't your pair, turn the right
+- **It converts to the wrong language.** Check the **Switches …** line in the window. If it isn't your pair, turn the right
   layouts on in Input Sources. With several languages, switch to yours once: English goes to the last one you used.
 - **What is it doing?** Its log shows each tap, without your text:
 
@@ -111,7 +113,7 @@ You can also update by running the install line again.
 
 ## Uninstall
 
-Quit it from the ⌨ menu, delete `~/Applications/LayoutFixer.app`, and remove LayoutFixer from Privacy & Security ›
+Quit it (right-click the ⌨ icon › **Quit Layout Fixer**), delete `~/Applications/LayoutFixer.app`, and remove LayoutFixer from Privacy & Security ›
 Accessibility with **–**.
 
 ## Privacy
