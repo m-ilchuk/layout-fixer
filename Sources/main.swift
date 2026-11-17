@@ -4,8 +4,8 @@ import ServiceManagement
 import os
 
 // Diagnostics only: counts and lengths, never what was typed.
-// Read with: log stream --predicate 'subsystem == "io.local.layoutfixer"'
-let log = Logger(subsystem: "io.local.layoutfixer", category: "fixer")
+// Read with: log stream --predicate 'subsystem == "io.github.m-ilchuk.layoutfixer"'
+let log = Logger(subsystem: "io.github.m-ilchuk.layoutfixer", category: "fixer")
 
 // Events this app posts carry this marker so its own tap lets them through untouched.
 let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"

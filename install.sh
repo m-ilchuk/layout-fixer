@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds, copies to ~/Applications and starts it. macOS then asks for Accessibility / Input Monitoring.
+# Builds, copies to ~/Applications and starts Layout Fixer. macOS then asks for Accessibility.
 set -euo pipefail
 cd "$(dirname "$0")"
 ./build.sh
