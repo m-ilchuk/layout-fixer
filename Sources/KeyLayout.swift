@@ -70,11 +70,19 @@ final class KeyLayout {
 
     /// Keyboard layouts the user can switch to right now (System Settings > Keyboard > Input Sources).
     static func enabledLayouts() -> [KeyLayout] {
-        let filter: NSDictionary = [
-            kTISPropertyInputSourceType as String: kTISTypeKeyboardLayout as String,
-            kTISPropertyInputSourceIsSelectCapable as String: true,
-        ]
-        guard let list = TISCreateInputSourceList(filter as CFDictionary, false)?.takeRetainedValue()
+        list(includeAllInstalled: false, selectableOnly: true)
+    }
+
+    /// Any layouts macOS ships, enabled or not, by ID ("com.apple.keylayout.Russian"); for tests.
+    static func installed(ids: [String]) -> [KeyLayout] {
+        let all = list(includeAllInstalled: true, selectableOnly: false)
+        return ids.compactMap { id in all.first { $0.id == id } }
+    }
+
+    private static func list(includeAllInstalled: Bool, selectableOnly: Bool) -> [KeyLayout] {
+        let filter = NSMutableDictionary(dictionary: [kTISPropertyInputSourceType as String: kTISTypeKeyboardLayout as String])
+        if selectableOnly { filter[kTISPropertyInputSourceIsSelectCapable as String] = true }
+        guard let list = TISCreateInputSourceList(filter as CFDictionary, includeAllInstalled)?.takeRetainedValue()
                 as? [TISInputSource]
         else { return [] }
         return list.compactMap(KeyLayout.init(source:))
@@ -102,10 +110,29 @@ final class KeyLayout {
     }
 }
 
-/// The layouts the fixer flips between. With two enabled (ABC + Ukrainian-PC) "the other one" is obvious;
-/// with more, it is the first enabled layout in a different language.
+/// The layouts the fixer flips between: English and your local layout (Ukrainian, Russian, Greek, German, ...).
+/// Text typed on any local layout goes to English; text typed on English goes to the local layout you used last.
 struct LayoutSet {
+    static let englishLanguage = "en"
+
     let layouts: [KeyLayout]
+    /// The local layout English flips to when several are enabled: the one you used last.
+    var preferredLocalID: String?
+
+    init(layouts: [KeyLayout], preferredLocalID: String? = nil) {
+        self.layouts = layouts
+        self.preferredLocalID = preferredLocalID
+    }
+
+    var english: KeyLayout? { layouts.first { $0.language == LayoutSet.englishLanguage } }
+    var locals: [KeyLayout] { layouts.filter { $0.language != LayoutSet.englishLanguage } }
+    var local: KeyLayout? { locals.first { $0.id == preferredLocalID } ?? locals.first }
+
+    /// What the app switches between, e.g. "ABC ↔ Ukrainian-PC"; nil when there is nothing to switch.
+    var pairDescription: String? {
+        guard let english, let local else { return nil }
+        return "\(english.name) ↔ \(local.name)"
+    }
 
     func layout(id: String) -> KeyLayout? {
         layouts.first { $0.id == id }
@@ -113,7 +140,10 @@ struct LayoutSet {
 
     func other(than id: String) -> KeyLayout? {
         guard let current = layout(id: id) else { return nil }
+        if let english, let local {
+            return current.language == LayoutSet.englishLanguage ? local : english
+        }
+        // No English layout enabled (say Ukrainian + Russian): flip to the other language.
         return layouts.first { $0.id != id && $0.language != current.language }
-            ?? layouts.first { $0.id != id }
     }
 }

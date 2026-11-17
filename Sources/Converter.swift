@@ -49,8 +49,8 @@ enum Converter {
 
     /// For selected text (no key presses to replay): guess the layout it was typed in from its
     /// characters, then map each character to the key that types it and back out on the other layout.
-    static func convert(text: String, layouts: LayoutSet) -> (text: String, target: KeyLayout)? {
-        guard let source = typedLayout(of: text, layouts: layouts),
+    static func convert(text: String, layouts: LayoutSet, currentID: String? = nil) -> (text: String, target: KeyLayout)? {
+        guard let source = typedLayout(of: text, layouts: layouts, currentID: currentID),
               let target = layouts.other(than: source.id)
         else { return nil }
         let converted = text.map { char -> String in
@@ -60,17 +60,20 @@ enum Converter {
         return (converted, target)
     }
 
-    /// The layout whose own characters (ones the other layouts lack, like Cyrillic letters) the text uses most.
-    static func typedLayout(of text: String, layouts: LayoutSet) -> KeyLayout? {
-        let scored = layouts.layouts.map { layout -> (KeyLayout, Int) in
-            let others = layouts.layouts.filter { $0.id != layout.id }
-            let own = text.filter { char in
-                layout.strokeForCharacter[char] != nil && others.allSatisfy { $0.strokeForCharacter[char] == nil }
-            }
-            return (layout, own.count)
-        }.sorted { $0.1 > $1.1 }
-        guard let best = scored.first, best.1 > 0 else { return nil }
-        if scored.count > 1 && scored[1].1 == best.1 { return nil }
-        return best.0
+    /// The layout the text was typed on: the one that can type its letters ("ї" only on Ukrainian). When several
+    /// can (Cyrillic on Ukrainian and Russian, Latin on ABC and German), the one that is on now wins, since you
+    /// typed it without switching; then English for Latin-looking text, then your local layout.
+    static func typedLayout(of text: String, layouts: LayoutSet, currentID: String? = nil) -> KeyLayout? {
+        let letters = text.filter(\.isLetter)
+        guard !letters.isEmpty else { return nil }
+        let coverage = layouts.layouts.map { layout in
+            (layout, letters.filter { layout.strokeForCharacter[$0] != nil }.count)
+        }
+        guard let best = coverage.map(\.1).max(), best > 0 else { return nil }
+        let candidates = coverage.filter { $0.1 == best }.map(\.0)
+        return candidates.first { $0.id == currentID }
+            ?? candidates.first { $0.id == layouts.english?.id }
+            ?? candidates.first { $0.id == layouts.local?.id }
+            ?? candidates.first
     }
 }

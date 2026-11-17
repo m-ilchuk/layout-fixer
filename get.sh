@@ -8,7 +8,6 @@ set -euo pipefail
 
 REPO="m-ilchuk/layout-fixer"
 REF="${LAYOUT_FIXER_REF:-main}"
-SOURCE_URL="${LAYOUT_FIXER_SOURCE_URL:-https://github.com/$REPO/archive/refs/heads/$REF.tar.gz}"
 MIN_MACOS_MAJOR=13
 
 fail() { echo "Layout Fixer: $*" >&2; exit 1; }
@@ -26,6 +25,19 @@ fi
 UPDATING=0
 [[ -d ~/Applications/LayoutFixer.app ]] && UPDATING=1
 
+# The exact commit, so the app's "Check for Updates" knows which version it is.
+if [[ -z "${LAYOUT_FIXER_SOURCE_URL:-}" ]]; then
+  COMMIT=$(curl -fsSL -H "Accept: application/vnd.github.sha" "https://api.github.com/repos/$REPO/commits/$REF" 2>/dev/null || true)
+  if [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+    export LAYOUT_FIXER_COMMIT="$COMMIT"
+    SOURCE_URL="https://github.com/$REPO/archive/$COMMIT.tar.gz"
+  else
+    SOURCE_URL="https://github.com/$REPO/archive/refs/heads/$REF.tar.gz"
+  fi
+else
+  SOURCE_URL="$LAYOUT_FIXER_SOURCE_URL"
+fi
+
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 echo "Downloading $SOURCE_URL"
@@ -33,6 +45,8 @@ curl -fsSL "$SOURCE_URL" | tar -xz -C "$WORK" --strip-components 1 || fail "coul
 echo "Building (about a minute)…"
 "$WORK/install.sh" >"$WORK/build.log" 2>&1 || { cat "$WORK/build.log" >&2; fail "the build failed (log above)."; }
 
+echo
+"$HOME/Applications/LayoutFixer.app/Contents/MacOS/LayoutFixer" --layouts || true
 cat <<'MSG'
 
 Layout Fixer is installed in ~/Applications and running (the ⌨ icon in the menu bar).

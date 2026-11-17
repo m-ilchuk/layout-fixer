@@ -2,22 +2,34 @@ import AppKit
 
 /// Asks the macOS spell checker about one word in one language ("en", "uk").
 protocol Speller {
+    /// Is there a dictionary for this language? Without one, words in it are never called valid.
+    func supports(_ language: String) -> Bool
     func isValid(_ word: String, language: String) -> Bool
     func correction(for word: String, language: String) -> String?
 }
 
 struct SystemSpeller: Speller {
+    func supports(_ language: String) -> Bool { dictionary(for: language) != nil }
+
     func isValid(_ word: String, language: String) -> Bool {
-        NSSpellChecker.shared.checkSpelling(
-            of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
+        guard let dictionary = dictionary(for: language) else { return false }
+        return NSSpellChecker.shared.checkSpelling(
+            of: word, startingAt: 0, language: dictionary, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
         ).location == NSNotFound
     }
 
     func correction(for word: String, language: String) -> String? {
+        guard let dictionary = dictionary(for: language) else { return nil }
         let range = NSRange(location: 0, length: (word as NSString).length)
         return NSSpellChecker.shared.correction(
-            forWordRange: range, in: word, language: language, inSpellDocumentWithTag: 0
+            forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
         )
+    }
+
+    /// "uk" → "uk", "pt" → "pt_BR": the macOS dictionary for a layout's language, if there is one.
+    private func dictionary(for language: String) -> String? {
+        let available = NSSpellChecker.shared.availableLanguages
+        return available.first { $0 == language } ?? available.first { $0.hasPrefix(language + "_") }
     }
 }
 
@@ -40,8 +52,10 @@ enum AutoFix {
         else { return nil }
 
         // Walk back over the words before it typed in the same layout; stop at the first that belongs there.
+        // Without a dictionary for the source language nothing can be said to belong, so fix only this word.
         var start = last.lowerBound
-        for word in words.dropLast().reversed() {
+        let canJudgeEarlierWords = speller.supports(source.language) && speller.supports(target.language)
+        for word in words.dropLast().reversed() where canJudgeEarlierWords {
             guard let (wordSource, _) = layoutsOf(buffer[word], layouts: layouts), wordSource.id == source.id,
                   !belongsToSource(buffer[word], source: source, target: target, speller: speller)
             else { break }

@@ -36,8 +36,17 @@ final class Fixer {
     }
 
     func reloadLayouts() {
-        layouts = LayoutSet(layouts: KeyLayout.enabledLayouts())
-        currentLayoutID = KeyLayout.currentLayoutID()
+        layouts = LayoutSet(layouts: KeyLayout.enabledLayouts(),
+                            preferredLocalID: UserDefaults.standard.string(forKey: "preferredLocal"))
+        layoutChanged()
+    }
+
+    /// The layout changed (by you or by a fix). A local layout becomes the one English flips to from now on.
+    func layoutChanged(to id: String? = KeyLayout.currentLayoutID()) {
+        currentLayoutID = id
+        guard let id, let layout = layouts.layout(id: id), layout.language != LayoutSet.englishLanguage else { return }
+        layouts.preferredLocalID = id
+        UserDefaults.standard.set(id, forKey: "preferredLocal")
     }
 
     func reset() { buffer.removeAll() }
@@ -164,23 +173,25 @@ final class Fixer {
         guard let range = Converter.segment(of: buffer, wholePhrase: wholePhrase),
               let target = Converter.target(for: buffer[range], in: layouts)
         else { NSSound.beep(); return }
+        let source = buffer[range].last(where: { !$0.isSpace }).flatMap { layouts.layout(id: $0.layoutID) }
         let fixed = Converter.retype(buffer[range], on: target)
         Typist.erase(count: range.count)
         Typist.type(fixed.map(\.text).joined())
         buffer.replaceSubrange(range, with: fixed)
-        switchLayout(to: target)
+        switchLayout(to: target, from: source)
     }
 
     /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
     private func fixWordBeforeSpace() -> Bool {
         guard let (range, target) = AutoFix.fix(buffer: buffer, layouts: layouts) else { return false }
+        let source = buffer.last.flatMap { layouts.layout(id: $0.layoutID) }
         let fixed = Converter.retype(buffer[range], on: target)
         log.info("auto-fix: \(AutoFix.wordRanges(in: Array(self.buffer[range])).count) words")
         Typist.erase(count: range.count)
         Typist.type(fixed.map(\.text).joined() + " ")
         buffer.replaceSubrange(range, with: fixed)
         buffer.append(Typed(stroke: KeyStroke(keyCode: KeyCode.space, modifiers: 0), layoutID: target.id, text: " "))
-        switchLayout(to: target)
+        switchLayout(to: target, from: source)
         return true
     }
 
@@ -191,7 +202,9 @@ final class Fixer {
         let saved = Clipboard.save(pasteboard)
         let replace: (String?) -> Void = { [weak self] text in
             guard let self else { return }
-            guard let text, let (converted, target) = Converter.convert(text: text, layouts: self.layouts) else {
+            guard let text,
+                  let (converted, target) = Converter.convert(text: text, layouts: self.layouts, currentID: self.currentLayoutID)
+            else {
                 log.info("nothing to convert (copied: \(text?.count ?? -1) chars)")
                 Clipboard.restore(saved, to: pasteboard)
                 NSSound.beep()
@@ -201,7 +214,7 @@ final class Fixer {
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
             self.reset()
-            self.switchLayout(to: target)
+            self.switchLayout(to: target, from: self.layouts.other(than: target.id))
             log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Clipboard.restore(saved, to: pasteboard) }
         }
@@ -211,9 +224,10 @@ final class Fixer {
         Clipboard.waitForChange(pasteboard, from: before, then: replace)
     }
 
-    private func switchLayout(to layout: KeyLayout) {
+    private func switchLayout(to layout: KeyLayout, from source: KeyLayout?) {
         layout.select()
-        currentLayoutID = layout.id
+        layoutChanged(to: layout.id)
+        Flash.shared.show(from: source, to: layout)
     }
 }
 
@@ -263,15 +277,37 @@ enum Typist {
 enum Selection {
     /// The selected text in the focused field, read through Accessibility (Mail, Notes, Slack, most native apps).
     static func textViaAccessibility() -> String? {
+        guard let element = focusedElement() else { return nil }
+        var selected: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success
+        else { return nil }
+        return selected as? String
+    }
+
+    /// Where the text cursor is on screen (top-left origin), for apps that say so.
+    static func caretRect() -> CGRect? {
+        guard let element = focusedElement() else { return nil }
+        var range: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &range) == .success,
+              let range
+        else { return nil }
+        var bounds: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+                element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success,
+              let bounds, CFGetTypeID(bounds) == AXValueGetTypeID()
+        else { return nil }
+        var rect = CGRect.zero
+        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect), rect.height > 0 else { return nil }
+        return rect
+    }
+
+    private static func focusedElement() -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
         else { return nil }
-        var selected: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &selected) == .success
-        else { return nil }
-        return selected as? String
+        return (element as! AXUIElement)
     }
 }
 
@@ -327,16 +363,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hideIcon = UserDefaults.standard.bool(forKey: "hideIcon") {
         didSet { UserDefaults.standard.set(hideIcon, forKey: "hideIcon"); refreshIcon() }
     }
+    private let updater = Updater()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         fixer.reloadLayouts()
         let center = DistributedNotificationCenter.default()
         center.addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
                            object: nil, queue: .main) { _ in
-            fixer.currentLayoutID = KeyLayout.currentLayoutID()
+            fixer.layoutChanged()
+            self.rebuildMenu()
         }
         center.addObserver(forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String),
-                           object: nil, queue: .main) { _ in fixer.reloadLayouts() }
+                           object: nil, queue: .main) { _ in fixer.reloadLayouts(); self.rebuildMenu() }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset() }
 
@@ -344,6 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
         refreshIcon()
         startTap()
+        updater.onChange = { [weak self] in self?.rebuildMenu() }
+        updater.start()
     }
 
     /// Opening the app again (Spotlight, Finder) while it runs brings a hidden icon back and opens its menu.
@@ -361,8 +401,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             askedForAccess = true
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
-            if !CGPreflightListenEventAccess() { CGRequestListenEventAccess() }
-            if !CGPreflightPostEventAccess() { CGRequestPostEventAccess() }
         }
 
         let trusted = AXIsProcessTrusted()
@@ -416,6 +454,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rebuildMenu() {
         let menu = NSMenu()
+        if case .available(let changes) = updater.status {
+            menu.addItem(item("Install update (\(changes) new change\(changes == 1 ? "" : "s"))…", action: #selector(installUpdate)))
+            menu.addItem(.separator())
+        }
+        menu.addItem(info(Setup.pairLine(fixer.layouts)))
+        menu.addItem(.separator())
         menu.addItem(info("Tap right ⌥  fix the selection, or the last word"))
         menu.addItem(info("⌥Space   fix the last word"))
         menu.addItem(info("⌥⇧Space  fix the whole phrase, or the selection"))
@@ -424,7 +468,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))
         menu.addItem(toggle("Fix automatically while typing (beta)", on: fixer.autoFix, action: #selector(toggleAuto)))
         menu.addItem(toggle("Open at login", on: SMAppService.mainApp.status == .enabled, action: #selector(toggleLogin)))
+        menu.addItem(toggle("Show a flash when fixing", on: Flash.shared.enabled, action: #selector(toggleFlash)))
         menu.addItem(item("Hide menu bar icon", action: #selector(hideMenuBarIcon)))
+        menu.addItem(.separator())
+        menu.addItem(item("Check for Updates…", action: #selector(checkForUpdates)))
+        menu.addItem(toggle("Check for updates automatically", on: updater.automatic, action: #selector(toggleAutoUpdate)))
+        menu.addItem(info("Version \(Updater.currentCommit.map { String($0.prefix(7)) } ?? "local build")"))
         menu.addItem(.separator())
         menu.addItem(item("Privacy settings…", action: #selector(openPrivacy)))
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
@@ -450,6 +499,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleEnabled() { fixer.enabled.toggle(); fixer.reset(); rebuildMenu(); refreshIcon() }
+
+    @objc private func toggleFlash() { Flash.shared.enabled.toggle(); rebuildMenu() }
+    @objc private func toggleAutoUpdate() { updater.automatic.toggle(); rebuildMenu() }
+
+    @objc private func checkForUpdates() {
+        updater.check { [weak self] status in
+            switch status {
+            case .available: self?.installUpdate()
+            case .upToDate: self?.tell("Layout Fixer is up to date.", "")
+            case .failed(let reason): self?.tell("Couldn't check for updates", reason)
+            case .unknown: break
+            }
+        }
+    }
+
+    @objc private func installUpdate() {
+        guard case .available(let changes) = updater.status else { return }
+        let alert = NSAlert()
+        alert.messageText = "Install the new version of Layout Fixer?"
+        alert.informativeText = "\(changes) new change\(changes == 1 ? "" : "s") on GitHub. It downloads, builds on this Mac "
+            + "(about a minute) and restarts by itself. macOS then asks you to allow it in Accessibility again: "
+            + "remove the old LayoutFixer from that list with – and add it again with +."
+        alert.addButton(withTitle: "Install")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        updater.install()
+    }
+
+    private func tell(_ title: String, _ detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
 
     @objc private func hideMenuBarIcon() {
         let alert = NSAlert()
@@ -481,6 +566,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+}
+
+// `LayoutFixer --layouts`: print what it will switch between (the installer shows this) and exit.
+if CommandLine.arguments.contains("--layouts") {
+    let layouts = LayoutSet(layouts: KeyLayout.enabledLayouts(),
+                            preferredLocalID: UserDefaults.standard.string(forKey: "preferredLocal"))
+    Setup.summary(layouts, speller: SystemSpeller()).forEach { print($0) }
+    exit(0)
 }
 
 let app = NSApplication.shared

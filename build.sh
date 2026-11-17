@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
-CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift)
+CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift)
+APP_ONLY=(Sources/Flash.swift Sources/Updater.swift Sources/main.swift)
 MIN_MACOS=13.0
 # Keep the compiler's cache inside build/, so the build writes nowhere else.
 SWIFTC=(swiftc -O -module-cache-path build/module-cache)
@@ -19,10 +20,13 @@ APP=build/LayoutFixer.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 for ARCH in arm64 x86_64; do
-  "${SWIFTC[@]}" -target "$ARCH-apple-macos$MIN_MACOS" "${CORE[@]}" Sources/main.swift -o "build/LayoutFixer-$ARCH"
+  "${SWIFTC[@]}" -target "$ARCH-apple-macos$MIN_MACOS" "${CORE[@]}" "${APP_ONLY[@]}" -o "build/LayoutFixer-$ARCH"
 done
 lipo -create build/LayoutFixer-arm64 build/LayoutFixer-x86_64 -output "$APP/Contents/MacOS/LayoutFixer"
 cp Info.plist "$APP/Contents/Info.plist"
+# The commit this build comes from, for "Check for Updates" (get.sh passes it; a checkout knows it).
+COMMIT="${LAYOUT_FIXER_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+/usr/libexec/PlistBuddy -c "Add :LFSourceCommit string $COMMIT" "$APP/Contents/Info.plist"
 
 # With the "LayoutFixer Local Signing" certificate (README: "Keep permissions across rebuilds") every build has the
 # same signature, so macOS keeps the app's permissions. Without it: ad-hoc, allow it again after each build.

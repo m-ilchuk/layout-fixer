@@ -1,7 +1,8 @@
 # Layout Fixer
 
-A small menu bar app for macOS that fixes text typed in the wrong keyboard layout (ABC/US ↔ Ukrainian),
-then switches the layout for you: `ghbdsn` → `привіт`, `руддщ` → `hello`.
+A small menu bar app for macOS that fixes text typed in the wrong keyboard layout, between English and your
+language (Ukrainian, Russian, Greek, Bulgarian, Hebrew, German, …), then switches the layout for you:
+`ghbdsn` → `привіт`, `руддщ` → `hello`.
 
 ## Install
 
@@ -10,13 +11,15 @@ curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh |
 ```
 
 It downloads the source, builds it on your Mac (it needs Apple's free command line tools and offers to install them),
-puts **LayoutFixer** in `~/Applications` and starts it. Then:
+puts **LayoutFixer** in `~/Applications`, starts it and prints the layouts it found, for example
+`Switches ABC ↔ Ukrainian`. Then:
 
 1. Allow it in System Settings › Privacy & Security › **Accessibility**. It starts working within a few seconds.
 2. Optional: menu bar item › **Open at login**.
 
-To update, run the same command again. macOS sees each new build as a new app, so remove LayoutFixer from the
-Accessibility list with **–** and add `~/Applications/LayoutFixer.app` again with **+**.
+To update, use **Install update** in its menu (it checks GitHub once a day, or on **Check for Updates…**), or run
+the same command again. macOS sees each new build as a new app, so remove LayoutFixer from the Accessibility list
+with **–** and add `~/Applications/LayoutFixer.app` again with **+**.
 
 To uninstall, quit it from its menu, delete `~/Applications/LayoutFixer.app` and remove it from the Accessibility list.
 
@@ -31,6 +34,22 @@ Needs macOS 13 or newer, on Apple silicon or Intel.
 | ⌥⇧Space | Convert the **selected** text; with nothing selected, the whole phrase since the last click / Enter / arrow key |
 | same key again | Flip it back |
 
+After each fix a small badge such as `UK → EN` shows under the text cursor for a moment (menu › **Show a flash
+when fixing** turns it off).
+
+## Layouts
+
+Layout Fixer uses the keyboard layouts you have turned on (System Settings › Keyboard › Text Input › Input Sources),
+reading each layout's keys from macOS, so any language works without setup. Text typed on your language's layout
+goes to English, and English goes to your language. With several languages turned on (say Ukrainian and Russian),
+English goes to the one you used last, and selected text goes back from whichever layout can type it. The menu
+shows the pair it uses now.
+
+Fix-while-typing checks words with the macOS dictionaries (40+ languages, including uk, ru, bg, el, he, de, fr, pl,
+cs). For a language without one, it still fixes words that should be English; the hotkeys work for every language.
+
+## Menu bar
+
 The ⌨ icon in the menu bar holds the settings. macOS already shows the current layout, so you can hide the icon
 (menu › **Hide menu bar icon**); open LayoutFixer again from Spotlight to bring it back. It shows ⚠ instead, even when
 hidden, while Accessibility is not allowed.
@@ -42,8 +61,9 @@ the words before it typed in the same wrong layout, then switches the layout: `�
 ## Privacy
 
 Layout Fixer needs Accessibility because it reads the keys you press and types the fixed text for you. It keeps the
-keys only in memory (at most 300, cleared on every click, Enter or app switch), never writes them anywhere and makes
-no network connections. The whole app is the four files in `Sources/`.
+keys only in memory (at most 300, cleared on every click, Enter or app switch) and never writes them anywhere. Its only
+network call is the update check to GitHub (`api.github.com`), which sends only the version it was built from; turn it
+off with menu › **Check for updates automatically**. The whole app is the seven files in `Sources/`.
 
 ## How it works
 
@@ -53,7 +73,6 @@ no network connections. The whole app is the four files in `Sources/`.
 - For selected text, which has no key presses to replay, it reads the selection through Accessibility (or copies it
   with ⌘C where an app doesn't share it), works out the layout from the characters, pastes the converted text over
   it and restores your clipboard. Punctuation that is punctuation on both layouts stays as you see it.
-- It flips between your two enabled keyboard layouts. Tested with ABC and Ukrainian-PC.
 - Logs (counts only, never your text): `/usr/bin/log stream --info --predicate 'subsystem == "io.github.m-ilchuk.layoutfixer"'`
 
 ## Develop
