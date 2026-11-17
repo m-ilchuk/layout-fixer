@@ -73,11 +73,13 @@ final class TypingSession {
 
     var hasTypedWord: Bool { buffer.contains { !$0.isSpace } }
 
-    /// A key that types (no ⌘ or ⌃; not Return, an arrow or ⌫). `eventCharacters` is what macOS put in the key
-    /// event, `reportedLayoutID` the layout macOS says is on. Returns an edit when this Space finishes a word to fix:
-    /// the app then swallows the Space, since the edit types it.
+    /// A key that types (no ⌘ or ⌃; not Return, an arrow or ⌫). `reportedLayoutID` is the layout macOS says is on.
+    /// `eventCharacters`, what macOS put in the key event, is only logged when it disagrees: on a real Mac it kept
+    /// the old layout's character for whole words after the app's own switch ("key typed on Ukrainian-PC while the
+    /// app had ABC"), so trusting it lost those words. Returns an edit when this Space finishes a word to fix: the
+    /// app then swallows the Space, since the edit types it.
     func type(_ stroke: KeyStroke, eventCharacters: String?, reportedLayoutID: String?) -> Edit? {
-        guard let layout = typingLayout(stroke, eventCharacters: eventCharacters, reported: reportedLayoutID) else {
+        guard let layout = typingLayout(reported: reportedLayoutID) else {
             reset("typing on a layout Layout Fixer doesn't use")
             return nil
         }
@@ -85,6 +87,11 @@ final class TypingSession {
             reset("a key that types no single character")
             return nil
         }
+        if let eventText = eventCharacters, eventText != text, !loggedEventMismatch {
+            loggedEventMismatch = true
+            log("key event text is from another layout than \(layout.id) (ignored)")
+        }
+        if text == " " { loggedEventMismatch = false }
         if text == " " && autoFix, let edit = fixWordBeforeSpace() { return edit }
         buffer.append(Typed(stroke: stroke, layoutID: layout.id, text: text))
         if buffer.count > TypingSession.maxRemembered { buffer.removeFirst(buffer.count - TypingSession.maxRemembered) }
@@ -105,18 +112,12 @@ final class TypingSession {
 
     // MARK: Private
 
-    /// The layout this key was really typed on. The character macOS put in the event settles it; without one,
+    /// Logged once per word, so a stale key event shows in the log without filling it.
+    private var loggedEventMismatch = false
+
+    /// The layout this key was really typed on: the app's own record (its switches, macOS's notices), corrected by
     /// macOS's report, except a late report of the layout the app just switched away from.
-    private func typingLayout(_ stroke: KeyStroke, eventCharacters: String?, reported: String?) -> KeyLayout? {
-        if let typed = eventCharacters {
-            let matching = layouts.layouts.filter { $0.character(for: stroke) == typed }
-            if let current = matching.first(where: { $0.id == currentLayoutID }) { return current }
-            if let actual = matching.first {
-                log("key typed on \(actual.id) while the app had \(currentLayoutID ?? "none")")
-                layoutChanged(to: actual.id)
-                return actual
-            }
-        }
+    private func typingLayout(reported: String?) -> KeyLayout? {
         let justSwitched = switchedAt.map { now().timeIntervalSince($0) < TypingSession.switchGraceSeconds } ?? false
         if reported != currentLayoutID && !(justSwitched && reported == switchedFrom) {
             log("layout changed without a notice: \(currentLayoutID ?? "none") → \(reported ?? "none")")

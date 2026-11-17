@@ -214,12 +214,18 @@ final class SimulatedMac {
     private var lagLeft = 0
     private let reportLag: Int
     private let eventCharacters: Bool
+    /// Key events carry the character of the layout that was on before the app's own switch (seen on a real
+    /// Mac: "key typed on Ukrainian-PC while the app had ABC", for whole words after a fix).
+    private let staleEventText: Bool
+    private var beforeAppSwitch: KeyLayout?
 
-    init(_ layouts: LayoutSet, startOn: KeyLayout, reportLag: Int = 0, eventCharacters: Bool = true) {
+    init(_ layouts: LayoutSet, startOn: KeyLayout, reportLag: Int = 0, eventCharacters: Bool = true,
+         staleEventText: Bool = false) {
         actual = startOn
         reported = startOn
         self.reportLag = reportLag
         self.eventCharacters = eventCharacters
+        self.staleEventText = staleEventText
         session = TypingSession(layouts: layouts, currentLayoutID: startOn.id)
         session.autoFix = true
     }
@@ -229,6 +235,7 @@ final class SimulatedMac {
         actual = layout
         reported = layout
         lagLeft = 0
+        beforeAppSwitch = nil
         if notice { session.layoutChanged(to: layout.id) }
     }
 
@@ -244,25 +251,30 @@ final class SimulatedMac {
         let char = actual.character(for: stroke)!
         let reportedID: String
         if lagLeft > 0 { reportedID = reported.id; lagLeft -= 1 } else { reported = actual; reportedID = actual.id }
-        guard let edit = session.type(stroke, eventCharacters: eventCharacters ? char : nil, reportedLayoutID: reportedID)
+        let eventText = staleEventText ? (beforeAppSwitch ?? actual).character(for: stroke) : char
+        guard let edit = session.type(stroke, eventCharacters: eventCharacters ? eventText : nil, reportedLayoutID: reportedID)
         else { screen += char; return }
         screen.removeLast(edit.erase)
         screen += edit.text
         reported = actual      // macOS keeps reporting the old layout for `reportLag` keys
+        beforeAppSwitch = actual
         actual = edit.target
         lagLeft = reportLag
     }
 }
 
-/// Every chain runs three ways: no lag; macOS reporting the old layout for 3 keys after a switch; and that lag
-/// with no character in the key events, so only the app's trust in its own switch keeps it right.
-let chainConditions: [(name: String, lag: Int, eventCharacters: Bool)] = [
-    ("no lag", 0, true), ("late report", 3, true), ("late report, no event text", 3, false),
+/// Every chain runs five ways: no lag; macOS reporting the old layout for 3 keys after a switch; that lag with no
+/// character in the key events; key events carrying the old layout's character after the app's switch (as on a
+/// real Mac); and both. Only the app's own record of its switch, and macOS's report after that, may be trusted.
+let chainConditions: [(name: String, lag: Int, eventCharacters: Bool, stale: Bool)] = [
+    ("no lag", 0, true, false), ("late report", 3, true, false), ("late report, no event text", 3, false, false),
+    ("stale event text", 0, true, true), ("stale event text, late report", 3, true, true),
 ]
 func chain(_ name: String, startOn: KeyLayout, _ words: [(String, KeyLayout)], expect: String,
            in layouts: LayoutSet = ukrainianSet) {
     for condition in chainConditions {
-        let mac = SimulatedMac(layouts, startOn: startOn, reportLag: condition.lag, eventCharacters: condition.eventCharacters)
+        let mac = SimulatedMac(layouts, startOn: startOn, reportLag: condition.lag,
+                               eventCharacters: condition.eventCharacters, staleEventText: condition.stale)
         mac.type(words)
         check("chain, \(condition.name): \(name)", mac.screen, expect + " ")
     }
@@ -283,6 +295,19 @@ chain("синхронізацію з Constant Contact (short word stays)", start
 chain("Привіт, як справи? then English (switches twice)", startOn: english,
       [("Привіт,", ukrainian), ("як", ukrainian), ("справи?", ukrainian), ("Let's", english), ("meet", english)],
       expect: "Привіт, як справи? Let's meet")
+// Rows typed on a real Mac (0.2.5), all started on ABC; each missed something there.
+chain("row: Інтеграція з Stripe пройшла успішно", startOn: english,
+      [("Інтеграція", ukrainian), ("з", ukrainian), ("Stripe", english), ("пройшла", ukrainian), ("успішно", ukrainian)],
+      expect: "Інтеграція з Stripe пройшла успішно")
+chain("row: Інтеграція з Stripe була успішною", startOn: english,
+      [("Інтеграція", ukrainian), ("з", ukrainian), ("Stripe", english), ("була", ukrainian), ("успішною", ukrainian)],
+      expect: "Інтеграція з Stripe була успішною")
+chain("row: Їжак на (two-letter word after a fix stays right)", startOn: english,
+      [("Їжак", ukrainian), ("на", ukrainian)], expect: "Їжак на")
+chain("row: Ти зробив синхронізацію з Constant Contact? (Ти, two letters, is left as typed)", startOn: english,
+      [("Ти", ukrainian), ("зробив", ukrainian), ("синхронізацію", ukrainian), ("з", ukrainian),
+       ("Constant", english), ("Contact?", english)],
+      expect: "Nb зробив синхронізацію з Constant Contact?")
 chain("русский текст и English (Russian)", startOn: russianSet.english!,
       [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
       expect: "привет мир hello world", in: russianSet)
@@ -317,6 +342,9 @@ check("notes: heading", plain(notes[0].runs), "What's new")
 check("notes: bold", plain(notes[2].runs), "[A settings window.] Click the icon.")
 check("notes: code in a bullet", plain(notes[3].runs), "Replaces <LayoutFixer.app>")
 check("notes: • bullet with bold", plain(notes[4].runs), "Turn on [Open at login]")
+let wrapped = ReleaseNotes.parse("- Fix while typing no longer\n  trusts `the event`.\n- Next")
+check("notes: an indented line carries on its bullet", wrapped.map { "\($0.kind):\(plain($0.runs))" }.joined(separator: " | "),
+      "bullet:Fix while typing no longer trusts <the event>. | bullet:Next")
 check("notes: unclosed markers stay text", plain(ReleaseNotes.runs("2 ** 3 and a ` tick")), "2 ** 3 and a ` tick")
 
 // Update progress, read from the installer's log.
