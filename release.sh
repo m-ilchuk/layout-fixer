@@ -3,7 +3,7 @@
 #
 # Semantic versioning: MAJOR when something people rely on changes or goes away, MINOR for new features,
 # PATCH for fixes. Checks main is clean and in sync, runs the tests, sets the version in Info.plist, commits,
-# tags vX.Y.Z, pushes, and creates the GitHub Release listing the commit titles since the last one.
+# tags vX.Y.Z, pushes, and creates the GitHub Release from the "Unreleased" section of CHANGELOG.md.
 # Installed apps see it within a day (or on Check for Updates…); the installer installs it from then on.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -28,15 +28,18 @@ echo "Testing…"
 echo "Building…"
 ./build.sh >/dev/null 2>&1 || fail "build failed: run ./build.sh"
 
-# Release notes: the commit titles since the previous release.
-PREVIOUS=$(git describe --tags --abbrev=0 2>/dev/null || true)
-NOTES=$(git log --no-merges --pretty='- %s' ${PREVIOUS:+"$PREVIOUS"..}HEAD | grep -vE '^- (Release [0-9]|Version 0\.0\.0)' || true)
-[[ -n "$NOTES" ]] || fail "nothing new since $PREVIOUS."
+# Release notes: the "## Unreleased" section of CHANGELOG.md, which becomes this version's section.
+NOTES=$(awk '/^## Unreleased/ { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md | sed '/./,$!d')
+[[ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]] \
+  || fail "write what changed under \"## Unreleased\" in CHANGELOG.md first."
+awk -v heading="## $VERSION — $(date +%Y-%m-%d)" \
+  '/^## Unreleased/ { print; print ""; print heading; next } { print }' CHANGELOG.md > CHANGELOG.md.new
+mv CHANGELOG.md.new CHANGELOG.md
 
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" Info.plist)
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((BUILD + 1))" Info.plist
-git commit -q -m "Release $VERSION" Info.plist
+git commit -q -m "Release $VERSION" Info.plist CHANGELOG.md
 git tag -a "$TAG" -m "Layout Fixer $VERSION"
 git push -q origin main "$TAG"
 gh release create "$TAG" --title "Layout Fixer $VERSION" --notes "$NOTES" --verify-tag

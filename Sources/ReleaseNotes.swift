@@ -21,6 +21,11 @@ enum ReleaseNotes {
         var lines: [Line] = []
         for raw in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            // An indented line carries on the bullet or paragraph above (wrapped in CHANGELOG.md).
+            if raw.hasPrefix(" "), !line.isEmpty, let last = lines.last, last.kind == .bullet || last.kind == .text {
+                lines[lines.count - 1] = Line(kind: last.kind, runs: last.runs + [Run(text: " ")] + runs(line))
+                continue
+            }
             if line.isEmpty {
                 // One blank line between blocks is enough.
                 if let last = lines.last, last.kind != .blank { lines.append(Line(kind: .blank, runs: [])) }

@@ -176,8 +176,9 @@ away (a key, a setting), **MINOR** for new features, **PATCH** for fixes. Before
 ./release.sh 0.2.0
 ```
 
-It checks that `main` is clean and pushed, runs the tests, sets the version in `Info.plist`, commits, tags `v0.2.0`,
-pushes, and creates the GitHub Release listing the commits since the last one. Then rewrite the notes on GitHub for
-people: the update dialog shows them formatted, with `## headings`, `- bullets`, `**bold**` and `` `code` ``. Copies
-on 0.1.0 show them as plain text, so keep markup light while people still update from it. Installed copies offer it within a day; the install line installs it from then on. To try unreleased
-code, put `LAYOUT_FIXER_REF=main` before `bash` in the install line.
+Write what changed under **Unreleased** in [`CHANGELOG.md`](CHANGELOG.md) as you go, for people: the update dialog
+shows it (`## headings`, `- bullets`, `**bold**`, `` `code` ``; wrapped lines are joined). `release.sh` checks that
+`main` is clean and pushed and that Unreleased isn't empty, runs the tests, sets the version in `Info.plist`, turns
+Unreleased into the version's section, commits, tags `v0.2.0`, pushes, and creates the GitHub Release with that
+section as its notes. Installed copies offer it within a day; the install line installs it from then on. To try
+unreleased code, put `LAYOUT_FIXER_REF=main` before `bash` in the install line.
