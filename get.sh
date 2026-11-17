@@ -47,20 +47,27 @@ echo "Building (about a minute)…"
 
 echo
 "$HOME/Applications/LayoutFixer.app/Contents/MacOS/LayoutFixer" --layouts || true
-cat <<'MSG'
-
-Layout Fixer is installed in ~/Applications and running (the ⌨ icon in the menu bar).
-
-One step left: allow it in System Settings › Privacy & Security › Accessibility.
-MSG
 if (( UPDATING )); then
   cat <<'MSG'
-Because this is an update, macOS treats it as a new app: select LayoutFixer in that list, remove it with –,
-then add ~/Applications/LayoutFixer.app with + and turn it on.
+
+Layout Fixer is updated and running.
+
+Allow it again: macOS sees each new build as a new app. Open System Settings › Privacy & Security ›
+Accessibility, select LayoutFixer, remove it with –, then add it again with + (press ⌘⇧G and type
+~/Applications/LayoutFixer.app) and turn it on.
+MSG
+else
+  cat <<'MSG'
+
+Layout Fixer is installed in ~/Applications and running (⚠ in the menu bar until you allow it).
+
+One step left: a dialog asks to let "LayoutFixer" control this computer. Click Open System Settings and
+turn on LayoutFixer. No dialog? Open System Settings › Privacy & Security › Accessibility, click +,
+press ⌘⇧G, type ~/Applications/LayoutFixer.app, click Open and turn it on.
 MSG
 fi
 cat <<'MSG'
 
-Then tap the right ⌥ key on its own: it converts the selected text, or the last word you typed.
-Menu bar item › Open at login starts it with your Mac.
+Then select text typed on the wrong layout (or just type a word) and tap the right ⌥ key on its own.
+Tap again to convert it back. Help: https://github.com/m-ilchuk/layout-fixer#use
 MSG

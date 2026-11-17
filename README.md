@@ -1,96 +1,139 @@
 # Layout Fixer
 
-A small menu bar app for macOS that fixes text typed in the wrong keyboard layout, between English and your
-language (Ukrainian, Polish, Greek, Bulgarian, Hebrew, German, …), then switches the layout for you:
-`ghbdsn` → `привіт`, `руддщ` → `hello`.
+Typed a whole sentence before noticing the keyboard was on the wrong language? Select it and tap the **right ⌥**
+key: Layout Fixer retypes it on the right layout and switches the keyboard for you.
+
+`ghbdsn` → `привіт` · `руддщ` → `hello` · works between English and your language (Ukrainian, Polish, Greek,
+Bulgarian, Hebrew, German, …).
+
+A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and open source.
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh | bash
-```
+1. Open **Terminal** (press ⌘Space, type `Terminal`, press Return).
+2. Paste this line and press Return:
 
-It downloads the source of the latest release, builds it on your Mac (it needs Apple's free command line tools and offers to install them),
-puts **LayoutFixer** in `~/Applications`, starts it and prints the layouts it found, for example
-`Switches ABC ↔ Ukrainian`. Then:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh | bash
+   ```
 
-1. Allow it in System Settings › Privacy & Security › **Accessibility**. It starts working within a few seconds.
-2. Optional: menu bar item › **Open at login**.
+   It downloads the latest release, builds it on your Mac (about a minute) and starts it. Building needs Apple's
+   free command line tools: if they're missing, a window offers to install them. Click **Install**, wait for it to
+   finish, then paste the line again.
+3. **Allow it.** A dialog says *"LayoutFixer" would like to control this computer using accessibility features*.
+   Click **Open System Settings** and turn on **LayoutFixer**. macOS may ask for your password or Touch ID.
 
-To update, use **Install version X.Y.Z** in its menu (it checks GitHub Releases once a day, or on **Check for
-Updates…**; it restarts by itself), or run the same command again. To try the newest unreleased code, put
-`LAYOUT_FIXER_REF=main` before `bash`. macOS sees each new build as a new app, so remove LayoutFixer from the Accessibility list
-with **–** and add `~/Applications/LayoutFixer.app` again with **+**.
+   No dialog, or LayoutFixer isn't in the list? Open System Settings › Privacy & Security › **Accessibility**, click
+   **+**, press ⌘⇧G, type `~/Applications/LayoutFixer.app`, press Return, click **Open** and turn it on.
+4. Within a few seconds the menu bar icon changes from ⚠ to ⌨. Done.
 
-To uninstall, quit it from its menu, delete `~/Applications/LayoutFixer.app` and remove it from the Accessibility list.
-
-Needs macOS 13 or newer, on Apple silicon or Intel.
+Optional: ⌨ menu › **Open at login** to start it with your Mac.
 
 ## Use
 
-**Tap the right ⌥ key** (on its own):
+**Tap the right ⌥ key** on its own (press and release it, nothing else):
 
-- **Text selected:** it is converted to the other layout and stays selected. Tap again to convert it back exactly
-  as it was.
-- **Nothing selected:** the last word you typed is converted. Tap again to flip it back.
+| | One tap | Tap again |
+|---|---|---|
+| **Text selected** | Converts it to the other layout; it stays selected | Puts back exactly what was there |
+| **Nothing selected** | Converts the last word you typed | Flips it back |
 
-The keyboard layout switches with it.
+The keyboard layout switches with it, and a small badge such as `UK → EN` shows under the text cursor for a moment.
 
-Apps that don't share their selection with macOS (some browsers) get it copied and pasted instead; your clipboard
-is put back afterwards.
+Try it (with Ukrainian): switch to English, type `ghbdsn`, tap right ⌥. You get `привіт` and the keyboard is
+now Ukrainian. Tap again and it's back to `ghbdsn`.
 
-After each fix a small badge such as `UK → EN` shows under the text cursor for a moment (menu › **Show a flash
-when fixing** turns it off).
+## Settings
+
+Everything is in the ⌨ menu bar icon:
+
+- **Switches ABC ↔ Ukrainian** (first line): the two layouts it uses now.
+- **Enabled**: pause it without quitting.
+- **Fix automatically while typing (beta)**, off by default: when you finish a word with Space and it only makes
+  sense on the other layout (checked with the macOS dictionaries, typos allowed), it is retyped without a tap,
+  together with the words before it typed on the same wrong layout: `рун умукщту рщц` → `hey everone how`.
+- **Show a flash when fixing**: the `UK → EN` badge.
+- **Open at login**.
+- **Hide menu bar icon**: macOS already shows the current layout, so the icon can go. Open LayoutFixer again
+  (Spotlight or `~/Applications`) to bring it back. While it waits for Accessibility it shows ⚠ even when hidden.
+- **Check for Updates…** and **Check for updates automatically** (once a day).
 
 ## Layouts
 
-Layout Fixer uses the keyboard layouts you have turned on (System Settings › Keyboard › Text Input › Input Sources),
-reading each layout's keys from macOS, so any language works without setup. Text typed on your language's layout
-goes to English, and English goes to your language. With several languages turned on (say Ukrainian and Polish),
-English goes to the one you used last, and text goes back from whichever layout can type it. The menu
-shows the pair it uses now.
+It uses the keyboard layouts you have turned on in System Settings › Keyboard › Text Input › Input Sources, and
+reads each layout's keys from macOS, so any language works without setup. You need English (ABC or U.S.) and your
+language. Text on your language goes to English, and English goes to your language. With several languages turned
+on (say Ukrainian and Polish), English goes to the one you used last.
 
-Fix-while-typing checks words with the macOS dictionaries (40+ languages, including uk, pl, bg, el, he, de, fr,
-cs). For a language without one, it still fixes words that should be English; the hotkeys work for every language.
+Fix-while-typing uses the macOS dictionaries (40+ languages, including uk, pl, bg, el, he, de, fr, cs). For a
+language without one it only fixes words that should be English; the right ⌥ key works for every language.
 
-## Menu bar
+## Update
 
-The ⌨ icon in the menu bar holds the settings. macOS already shows the current layout, so you can hide the icon
-(menu › **Hide menu bar icon**); open LayoutFixer again from Spotlight to bring it back. It shows ⚠ instead, even when
-hidden, while Accessibility is not allowed.
+When a new version is out, the ⌨ menu shows **Install version X.Y.Z…**. Click it, read what's new and click
+**Install**: it downloads, builds and restarts by itself in about a minute (the icon shows ⟳ meanwhile).
 
-The menu also has **Fix automatically while typing (beta)**, off by default. When you finish a word with Space and it
-only makes sense on the other layout (checked with the macOS spell checker, typos allowed), it retypes that word and
-the words before it typed in the same wrong layout, then switches the layout: `рун умукщту рщц` → `hey everone how`.
+**After every update, allow it again.** macOS sees each new build as a new app: in Privacy & Security ›
+**Accessibility**, select LayoutFixer, remove it with **–**, then add it again with **+** as in step 3 above.
+
+You can also update by running the install line again.
+
+## Troubleshooting
+
+- **Nothing happens when I tap right ⌥.** Check the menu bar icon: ⚠ means it isn't allowed yet (see Install, step
+  3); a dimmed ⌨ means **Enabled** is off. Tap the key quickly and on its own: holding it, or pressing another key
+  with it, is ⌥ doing its usual job.
+- **It beeps.** Nothing is selected and you haven't typed anything since your last click, so there is nothing to
+  convert.
+- **It stopped working after an update.** Allow it again: remove LayoutFixer from the Accessibility list with **–**
+  and add it back with **+**.
+- **Wrong text in a browser or chat app.** Some apps don't tell macOS what is selected. Layout Fixer then copies the
+  selection, converts it and pastes it back (your clipboard is restored after). Tap once and wait half a second
+  before tapping again.
+- **It converts to the wrong language.** Check the first line of the ⌨ menu. If it isn't your pair, turn the right
+  layouts on in Input Sources. With several languages, switch to yours once: English goes to the last one you used.
+- **What is it doing?** Its log shows each tap, without your text:
+
+  ```bash
+  /usr/bin/log stream --info --predicate 'subsystem == "io.github.m-ilchuk.layoutfixer"'
+  ```
+
+## Uninstall
+
+Quit it from the ⌨ menu, delete `~/Applications/LayoutFixer.app`, and remove LayoutFixer from Privacy & Security ›
+Accessibility with **–**.
 
 ## Privacy
 
-Layout Fixer needs Accessibility because it reads the keys you press and types the fixed text for you. It keeps the
-keys only in memory (at most 300, cleared on every click, Enter or app switch) and never writes them anywhere. Its only
-network call is the update check to GitHub (`api.github.com`), which sends only the version it was built from; turn it
-off with menu › **Check for updates automatically**. The whole app is the seven files in `Sources/`.
+Layout Fixer needs Accessibility to read the keys you press and the text you select, and to type the converted text.
+It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch) and never writes your
+text anywhere. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
+**Check for updates automatically** turns it off. All of its code is in [`Sources/`](Sources).
 
 ## How it works
 
-- It remembers the **keys** you pressed, not the characters. Fixing a word deletes it and types the same keys again on
-  the other layout. The key maps come from macOS (`UCKeyTranslate`), so nothing is hard-coded and the result matches
-  the layouts you have enabled (`'` → `є`, `s` → `і`, `]` → `ї`).
-- For selected text, which has no key presses to replay, it reads the selection through Accessibility (or copies it
-  with ⌘C where an app doesn't share it), works out the layout from the characters, pastes the converted text over
-  it and restores your clipboard. Punctuation that is punctuation on both layouts stays as you see it.
-- Logs (counts only, never your text): `/usr/bin/log stream --info --predicate 'subsystem == "io.github.m-ilchuk.layoutfixer"'`
+- **The last word:** it remembers the keys you pressed since your last click, not the characters. Converting deletes
+  the word and types the same keys on the other layout. The key maps come from macOS (`UCKeyTranslate`), so nothing
+  is hard-coded and the result matches your layouts (`'` → `є`, `s` → `і`, `]` → `ї`).
+- **Selected text** has no key presses to replay: it reads the selection through Accessibility (or copies it where an
+  app doesn't share it), works out which layout can type it, pastes the converted text over it and selects it
+  again. Punctuation that is punctuation on both layouts stays as you see it, and a second tap restores the exact
+  original.
+- **Installing from source** means nothing prebuilt is downloaded, so Gatekeeper has nothing to block, and you can
+  read every line that runs.
 
 ## Develop
 
 ```bash
-./build.sh --test   # conversion tests against the layouts enabled on this Mac
-./install.sh        # build (Apple silicon + Intel), copy to ~/Applications, start
+git clone https://github.com/m-ilchuk/layout-fixer.git && cd layout-fixer
+./build.sh --test   # tests (uses layouts macOS ships, so any Mac can run them)
+./install.sh        # build for Apple silicon + Intel, copy to ~/Applications, start
 ```
 
 ### Keep permissions across rebuilds
 
-macOS ties the permissions to the app's signature. An ad-hoc signature changes on every build, so each new build has
-to be allowed again. A local certificate fixes that (one time, about a minute):
+macOS ties the Accessibility permission to the app's signature. An ad-hoc signature changes on every build, so each
+build has to be allowed again. A local certificate fixes that (once, about a minute):
 
 1. Keychain Access › menu **Keychain Access › Certificate Assistant › Create a Certificate…**
 2. Name `LayoutFixer Local Signing`, Identity Type **Self-Signed Root**, Certificate Type **Code Signing** › Create.
@@ -102,12 +145,13 @@ to be allowed again. A local certificate fixes that (one time, about a minute):
 ### Release
 
 Versions follow [semantic versioning](https://semver.org): **MAJOR** when something people rely on changes or goes
-away (a hotkey, a setting), **MINOR** for new features, **PATCH** for fixes.
+away (a key, a setting), **MINOR** for new features, **PATCH** for fixes. Before 1.0.0, breaking changes bump MINOR.
 
 ```bash
-./release.sh 1.2.0
+./release.sh 0.2.0
 ```
 
-It checks that `main` is clean and pushed, runs the tests, sets the version in `Info.plist`, commits, tags `v1.2.0`,
-pushes, and creates the GitHub Release with notes from the commits since the last one. Installed copies offer it
-within a day, and the installer installs it from then on.
+It checks that `main` is clean and pushed, runs the tests, sets the version in `Info.plist`, commits, tags `v0.2.0`,
+pushes, and creates the GitHub Release listing the commits since the last one (edit the notes on GitHub to make them
+read well). Installed copies offer it within a day; the install line installs it from then on. To try unreleased
+code, put `LAYOUT_FIXER_REF=main` before `bash` in the install line.
