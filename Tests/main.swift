@@ -201,6 +201,104 @@ check("every key: ABC ↔ Greek", everyKey(greekSet), "all keys")
 check("every key: ABC ↔ German", everyKey(germanSet), "all keys")
 check("⌥ layer: ы (⌥S on Ukrainian) → ß", select("руддщ ы", current: "Ukrainian-PC"), "hello ß")
 
+// MARK: Chains: whole sentences typed on a simulated Mac with fix-while-typing on.
+
+/// A Mac as Layout Fixer sees it: the layout really on (it decides what each key types), the layout macOS reports
+/// (it can lag a few keys behind a switch), whether key events carry their character, and the text on screen.
+/// Keys go through a TypingSession the way the app sends them, and its edits are applied the way the app does.
+final class SimulatedMac {
+    let session: TypingSession
+    private(set) var screen = ""
+    private var actual: KeyLayout
+    private var reported: KeyLayout
+    private var lagLeft = 0
+    private let reportLag: Int
+    private let eventCharacters: Bool
+
+    init(_ layouts: LayoutSet, startOn: KeyLayout, reportLag: Int = 0, eventCharacters: Bool = true) {
+        actual = startOn
+        reported = startOn
+        self.reportLag = reportLag
+        self.eventCharacters = eventCharacters
+        session = TypingSession(layouts: layouts, currentLayoutID: startOn.id)
+        session.autoFix = true
+    }
+
+    /// The person switches the layout (⌃Space); `notice` is whether the app hears macOS announce it.
+    func personSwitches(to layout: KeyLayout, notice: Bool) {
+        actual = layout
+        reported = layout
+        lagLeft = 0
+        if notice { session.layoutChanged(to: layout.id) }
+    }
+
+    /// Words, each with the layout the person means it in, each followed by Space: the keys that type the word
+    /// on that layout are pressed on whatever layout is really on.
+    func type(_ words: [(String, KeyLayout)]) {
+        for (word, meant) in words {
+            for char in word + " " { press(meant.strokeForCharacter[char]!) }
+        }
+    }
+
+    private func press(_ stroke: KeyStroke) {
+        let char = actual.character(for: stroke)!
+        let reportedID: String
+        if lagLeft > 0 { reportedID = reported.id; lagLeft -= 1 } else { reported = actual; reportedID = actual.id }
+        guard let edit = session.type(stroke, eventCharacters: eventCharacters ? char : nil, reportedLayoutID: reportedID)
+        else { screen += char; return }
+        screen.removeLast(edit.erase)
+        screen += edit.text
+        reported = actual      // macOS keeps reporting the old layout for `reportLag` keys
+        actual = edit.target
+        lagLeft = reportLag
+    }
+}
+
+/// Every chain runs three ways: no lag; macOS reporting the old layout for 3 keys after a switch; and that lag
+/// with no character in the key events, so only the app's trust in its own switch keeps it right.
+let chainConditions: [(name: String, lag: Int, eventCharacters: Bool)] = [
+    ("no lag", 0, true), ("late report", 3, true), ("late report, no event text", 3, false),
+]
+func chain(_ name: String, startOn: KeyLayout, _ words: [(String, KeyLayout)], expect: String,
+           in layouts: LayoutSet = ukrainianSet) {
+    for condition in chainConditions {
+        let mac = SimulatedMac(layouts, startOn: startOn, reportLag: condition.lag, eventCharacters: condition.eventCharacters)
+        mac.type(words)
+        check("chain, \(condition.name): \(name)", mac.screen, expect + " ")
+    }
+}
+chain("Інтеграція з Stripe пройшла успішно (starts on English)", startOn: english,
+      [("Інтеграція", ukrainian), ("з", ukrainian), ("Stripe", english), ("пройшла", ukrainian), ("успішно", ukrainian)],
+      expect: "Інтеграція з Stripe пройшла успішно")
+chain("Їжак на ґанку зробив своє брудне діло (starts on English)", startOn: english,
+      [("Їжак", ukrainian), ("на", ukrainian), ("ґанку", ukrainian), ("зробив", ukrainian), ("своє", ukrainian),
+       ("брудне", ukrainian), ("діло", ukrainian)],
+      expect: "Їжак на ґанку зробив своє брудне діло")
+chain("hey everyone how are you (starts on Ukrainian)", startOn: ukrainian,
+      [("hey", english), ("everyone", english), ("how", english), ("are", english), ("you?", english)],
+      expect: "hey everyone how are you?")
+chain("синхронізацію з Constant Contact (short word stays)", startOn: ukrainian,
+      [("синхронізацію", ukrainian), ("з", ukrainian), ("Constant", english), ("Contact", english)],
+      expect: "синхронізацію з Constant Contact")
+chain("Привіт, як справи? then English (switches twice)", startOn: english,
+      [("Привіт,", ukrainian), ("як", ukrainian), ("справи?", ukrainian), ("Let's", english), ("meet", english)],
+      expect: "Привіт, як справи? Let's meet")
+chain("русский текст и English (Russian)", startOn: russianSet.english!,
+      [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
+      expect: "привет мир hello world", in: russianSet)
+
+// The person switches the layout themselves: what they type on it stays, with or without macOS's notice.
+for notice in [true, false] {
+    for eventCharacters in [true, false] {
+        let mac = SimulatedMac(ukrainianSet, startOn: english, eventCharacters: eventCharacters)
+        mac.type([("hello", english)])
+        mac.personSwitches(to: ukrainian, notice: notice)
+        mac.type([("привіт", ukrainian), ("світ", ukrainian)])
+        check("chain: own switch (notice \(notice), event text \(eventCharacters)) keeps what's typed",
+              mac.screen, "hello привіт світ ")
+    }
+}
+
 // Release notes as the update dialog shows them.
 func plain(_ runs: [ReleaseNotes.Run]) -> String {
     runs.map { $0.bold ? "[\($0.text)]" : $0.code ? "<\($0.text)>" : $0.text }.joined()

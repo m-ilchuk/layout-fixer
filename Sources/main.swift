@@ -9,7 +9,6 @@ let log = Logger(subsystem: "io.github.m-ilchuk.layoutfixer", category: "fixer")
 
 // Events this app posts carry this marker so its own tap lets them through untouched.
 let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"
-let maxBufferLength = 300
 let keyDelayMicroseconds: useconds_t = 1500
 let rightOptionTapSeconds: TimeInterval = 0.4
 /// Longer selections are converted but not selected again (that takes one ⇧← per character).
@@ -27,9 +26,9 @@ enum KeyCode {
 }
 
 final class Fixer {
-    var layouts = LayoutSet(layouts: [])
-    var currentLayoutID: String?
-    var buffer: [Typed] = []
+    /// The typing itself (memory, layouts, fix-while-typing), apart from macOS so tests can drive it.
+    let session = TypingSession(layouts: LayoutSet(layouts: []), currentLayoutID: nil,
+                                log: { message in log.info("\(message, privacy: .public)") })
     /// Right ⌥ was tapped: convert the selection once the key is up.
     var pending = false
     private var lastConversion = LastConversion()
@@ -37,31 +36,28 @@ final class Fixer {
     /// or two pastes land on top of each other and the text doubles.
     private var convertingSelection = false
     var enabled = true
-    var autoFix = UserDefaults.standard.bool(forKey: "autoFix") {
-        didSet { UserDefaults.standard.set(autoFix, forKey: "autoFix") }
+    var autoFix: Bool {
+        get { session.autoFix }
+        set { session.autoFix = newValue; UserDefaults.standard.set(newValue, forKey: "autoFix") }
+    }
+    var layouts: LayoutSet { session.layouts }
+    var currentLayoutID: String? { session.currentLayoutID }
+
+    init() {
+        session.autoFix = UserDefaults.standard.bool(forKey: "autoFix")
+        session.onLocalLayoutUsed = { UserDefaults.standard.set($0, forKey: "preferredLocal") }
     }
 
     func reloadLayouts() {
-        layouts = LayoutSet(layouts: KeyLayout.enabledLayouts(),
-                            preferredLocalID: UserDefaults.standard.string(forKey: "preferredLocal"))
-        layoutChanged()
+        session.setLayouts(LayoutSet(layouts: KeyLayout.enabledLayouts(),
+                                     preferredLocalID: UserDefaults.standard.string(forKey: "preferredLocal")),
+                           current: KeyLayout.currentLayoutID())
     }
 
-    /// The layout changed (by you or by a fix). A local layout becomes the one English flips to from now on.
-    func layoutChanged(to id: String? = KeyLayout.currentLayoutID()) {
-        currentLayoutID = id
-        guard let id, let layout = layouts.layout(id: id), layout.language != LayoutSet.englishLanguage else { return }
-        layouts.preferredLocalID = id
-        UserDefaults.standard.set(id, forKey: "preferredLocal")
-    }
+    /// macOS says the layout changed.
+    func layoutChanged() { session.layoutChanged(to: KeyLayout.currentLayoutID()) }
 
-    /// What last cleared the typed-keys memory, for the log when a word can't be fixed.
-    private(set) var lastClear = "starting up"
-
-    func reset(_ reason: String) {
-        buffer.removeAll()
-        lastClear = reason
-    }
+    func reset(_ reason: String) { session.reset(reason) }
 
     // MARK: Event tap
 
@@ -117,54 +113,24 @@ final class Fixer {
             return true
         }
         if keyCode == KeyCode.delete {
-            if flags.contains(.maskAlternate) { reset("⌥⌫") } else if !buffer.isEmpty { buffer.removeLast() }
+            if flags.contains(.maskAlternate) { reset("⌥⌫") } else { session.deleteBackward() }
             return true
         }
         let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
-        guard let layout = typingLayout(event, stroke) else {
-            reset("typing on a layout Layout Fixer doesn't use")
-            return true
-        }
-        let layoutID = layout.id
-        guard let text = layout.character(for: stroke), text.count == 1 else {
-            reset("a key that types no single character")
-            return true
-        }
-        if text == " " && autoFix && fixWordBeforeSpace() { return false }
-        buffer.append(Typed(stroke: stroke, layoutID: layoutID, text: text))
-        if buffer.count > maxBufferLength { buffer.removeFirst(buffer.count - maxBufferLength) }
-        return true
+        guard let edit = session.type(stroke, eventCharacters: Self.characters(of: event),
+                                      reportedLayoutID: KeyLayout.currentLayoutID())
+        else { return true }
+        apply(edit)
+        return false  // the edit types the Space
     }
 
-    /// The layout this key was really typed on. macOS is asked on every key (a missed "layout changed" notice left
-    /// the app sure it was Ukrainian while ABC was on, so "];fr" passed as "їжак"), and the character the event
-    /// carries settles it when macOS's answer doesn't type that character.
-    private func typingLayout(_ event: CGEvent, _ stroke: KeyStroke) -> KeyLayout? {
-        // 1. The character macOS put in the event, when it did: the layout that types it.
-        if let typed = Self.characters(of: event) {
-            let matching = layouts.layouts.filter { $0.character(for: stroke) == typed }
-            if let current = matching.first(where: { $0.id == currentLayoutID }) { return current }
-            if let actual = matching.first {
-                log.info("key typed on \(actual.id, privacy: .public) while the app had \(self.currentLayoutID ?? "none", privacy: .public)")
-                layoutChanged(to: actual.id)
-                return actual
-            }
-        }
-        // 2. What macOS reports, except just after the app switched the layout itself: then the report can
-        //    still name the old layout for a moment, and the app's own switch is the truth.
-        let reported = KeyLayout.currentLayoutID()
-        let justSwitched = switchedAt.map { Date().timeIntervalSince($0) < AppSwitch.graceSeconds } ?? false
-        if reported != currentLayoutID && !(justSwitched && reported == switchedFrom) {
-            log.info("layout changed without a notice: \(self.currentLayoutID ?? "none", privacy: .public) → \(reported ?? "none", privacy: .public)")
-            layoutChanged(to: reported)
-        }
-        return currentLayoutID.flatMap { layouts.layout(id: $0) }
+    /// Carry out a session edit: erase, type, switch the keyboard, flash.
+    private func apply(_ edit: TypingSession.Edit) {
+        Typist.erase(count: edit.erase)
+        Typist.type(edit.text)
+        edit.target.select()
+        Flash.shared.show(from: edit.source, to: edit.target)
     }
-
-    /// The app's own last layout switch (after a fix), so a late report of the old layout isn't believed.
-    private var switchedAt: Date?
-    private var switchedFrom: String?
-    private enum AppSwitch { static let graceSeconds: TimeInterval = 1 }
 
     /// The text macOS put in a key event, when it put any.
     private static func characters(of event: CGEvent) -> String? {
@@ -183,7 +149,7 @@ final class Fixer {
         return modifiers
     }
 
-    // MARK: Fixing
+    // MARK: Right ⌥
 
     /// Right ⌥: the selected text, or with nothing selected the last word typed, goes to the other layout.
     /// Another tap converts it back.
@@ -197,9 +163,10 @@ final class Fixer {
             log.info("selection via accessibility: \(selection.text.count) chars")
             return fixSelection(selection)
         }
-        if buffer.contains(where: { !$0.isSpace }) {
+        if session.hasTypedWord {
             log.info("no selection; converting the last word")
-            return fixLastWord()
+            guard let edit = session.convertLastWord() else { return NSSound.beep() }
+            return apply(edit)
         }
         guard selection == nil else {
             log.info("nothing selected, nothing typed")
@@ -207,49 +174,6 @@ final class Fixer {
         }
         log.info("the app doesn't share its selection; copying it")
         fixSelection(nil)
-    }
-
-    /// Erase the last word typed and type the same keys on the other layout.
-    private func fixLastWord() {
-        guard let range = Converter.lastWord(of: buffer),
-              let typedOn = buffer[range].last(where: { !$0.isSpace })?.layoutID,
-              let source = layouts.layout(id: typedOn), let target = layouts.other(than: typedOn)
-        else { return NSSound.beep() }
-        let fixed = Converter.retype(buffer[range], on: target)
-        Typist.erase(count: range.count)
-        Typist.type(fixed.map(\.text).joined())
-        buffer.replaceSubrange(range, with: fixed)
-        switchLayout(to: target, from: source)
-    }
-
-    /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
-    private func fixWordBeforeSpace() -> Bool {
-        let decision = AutoFix.decide(buffer: buffer, layouts: layouts)
-        guard case .fix(let range, let target) = decision else {
-            if case .skip(let reason) = decision { logSkip(reason) }
-            return false
-        }
-        let source = buffer.last.flatMap { layouts.layout(id: $0.layoutID) }
-        let fixed = Converter.retype(buffer[range], on: target)
-        log.info("auto-fix: \(AutoFix.wordRanges(in: Array(self.buffer[range])).count) words")
-        Typist.erase(count: range.count)
-        Typist.type(fixed.map(\.text).joined() + " ")
-        buffer.replaceSubrange(range, with: fixed)
-        buffer.append(Typed(stroke: KeyStroke(keyCode: KeyCode.space, modifiers: 0), layoutID: target.id, text: " "))
-        switchLayout(to: target, from: source)
-        return true
-    }
-
-    /// Why the word before this Space stays as typed: lengths and layouts only, never the text.
-    private func logSkip(_ reason: AutoFix.Skip) {
-        let detail: String
-        if reason == .noWord {
-            detail = "memory last cleared by \(lastClear)"
-        } else {
-            let word = AutoFix.wordRanges(in: buffer).last.map { buffer[$0] }
-            detail = "\(word?.count ?? 0) keys on \(word?.first?.layoutID ?? "?")"
-        }
-        log.info("auto-fix skipped: \(reason.rawValue, privacy: .public) (\(detail, privacy: .public))")
     }
 
     /// Convert the selected text, paste it over the selection, select it again, switch the layout and restore
@@ -267,14 +191,16 @@ final class Fixer {
                 NSSound.beep()
                 return
             }
-            self.lastConversion.remember(original: text, output: converted,
-                                         originalLayoutID: self.layouts.other(than: target.id)?.id)
+            let source = self.layouts.other(than: target.id)
+            self.lastConversion.remember(original: text, output: converted, originalLayoutID: source?.id)
             pasteboard.clearContents()
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { Selection.reselect(converted, after: selection) }
             self.reset("converting a selection")
-            self.switchLayout(to: target, from: self.layouts.other(than: target.id))
+            target.select()
+            self.session.appSwitched(to: target.id)
+            Flash.shared.show(from: source, to: target)
             log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 Clipboard.restore(saved, to: pasteboard)
@@ -293,14 +219,6 @@ final class Fixer {
             return (back.text, layout)
         }
         return Converter.convert(text: text, layouts: layouts, currentID: currentLayoutID)
-    }
-
-    private func switchLayout(to layout: KeyLayout, from source: KeyLayout?) {
-        switchedFrom = currentLayoutID
-        switchedAt = Date()
-        layout.select()
-        layoutChanged(to: layout.id)
-        Flash.shared.show(from: source, to: layout)
     }
 }
 
