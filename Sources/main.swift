@@ -12,31 +12,27 @@ let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"
 let maxBufferLength = 300
 let keyDelayMicroseconds: useconds_t = 1500
 let rightOptionTapSeconds: TimeInterval = 0.4
-/// A second tap this soon after a last-word fix extends it to the whole phrase.
-let doubleTapSeconds: TimeInterval = 0.4
+/// Longer selections are converted but not selected again (that takes one ⇧← per character).
+let maxReselectByArrows = 500
 
 enum KeyCode {
     static let space: UInt16 = 49
     static let delete: UInt16 = 51
     static let c: UInt16 = 8
     static let v: UInt16 = 9
+    static let leftArrow: UInt16 = 123
     static let rightOption: UInt16 = 61
     // Keys that move the caret or end the line: the typed buffer no longer matches the screen.
     static let resetting: Set<UInt16> = [36, 76, 48, 53, 117, 115, 119, 116, 121, 123, 124, 125, 126]
-}
-
-enum Action {
-    /// Tap right ⌥: the selection, or the last word typed.
-    case selectionOrLastWord
-    /// Second tap right after a last-word fix: the rest of the phrase follows that word to the same layout.
-    case extendToPhrase(target: KeyLayout)
 }
 
 final class Fixer {
     var layouts = LayoutSet(layouts: [])
     var currentLayoutID: String?
     var buffer: [Typed] = []
-    var pending: Action?
+    /// Right ⌥ was tapped: convert the selection once the key is up.
+    var pending = false
+    private var lastConversion = LastConversion()
     var enabled = true
     var autoFix = UserDefaults.standard.bool(forKey: "autoFix") {
         didSet { UserDefaults.standard.set(autoFix, forKey: "autoFix") }
@@ -70,9 +66,9 @@ final class Fixer {
             let held = event.flags.intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl])
             trackRightOptionTap(keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)), held: held)
             // Act once ⌥/⇧ are released, so the text we type is not mixed with held modifiers.
-            if held.isEmpty, let action = pending {
-                pending = nil
-                run(action)
+            if held.isEmpty && pending {
+                pending = false
+                convertSelection()
             }
             return true
         default:
@@ -84,8 +80,6 @@ final class Fixer {
 
     // Right ⌥ pressed and released on its own, quickly, with nothing else in between.
     private var rightOptionDownAt: Date?
-    /// The last tap fixed the last word typed: when, and to which layout (for a double tap).
-    private var lastWordFix: (at: Date, target: KeyLayout)?
 
     private func trackRightOptionTap(keyCode: UInt16, held: CGEventFlags) {
         guard keyCode == KeyCode.rightOption else { rightOptionDownAt = nil; return }
@@ -94,14 +88,8 @@ final class Fixer {
         } else if held.isEmpty, let downAt = rightOptionDownAt {
             rightOptionDownAt = nil
             guard Date().timeIntervalSince(downAt) < rightOptionTapSeconds else { return }
-            if let fix = lastWordFix, Date().timeIntervalSince(fix.at) < doubleTapSeconds {
-                log.info("hotkey: right option double tap")
-                pending = .extendToPhrase(target: fix.target)
-            } else {
-                log.info("hotkey: right option tap")
-                pending = .selectionOrLastWord
-            }
-            lastWordFix = nil
+            log.info("hotkey: right option tap")
+            pending = true
         } else {
             rightOptionDownAt = nil
         }
@@ -112,7 +100,6 @@ final class Fixer {
     private func handleKeyDown(_ event: CGEvent) -> Bool {
         if !loggedFirstKey { loggedFirstKey = true; log.info("receiving key presses") }
         rightOptionDownAt = nil
-        lastWordFix = nil
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let command = flags.contains(.maskCommand) || flags.contains(.maskControl)
@@ -149,38 +136,18 @@ final class Fixer {
 
     // MARK: Fixing
 
-    private func run(_ action: Action) {
-        switch action {
-        case .selectionOrLastWord:
-            // Selection first: whatever is selected is what you want converted.
-            if let selected = Selection.textViaAccessibility(), !selected.isEmpty {
-                log.info("selection via accessibility: \(selected.count) chars")
-                fixSelection(knownText: selected)
-            } else if buffer.contains(where: { !$0.isSpace }) {
-                if let target = fixTyped(wholePhrase: false) { lastWordFix = (Date(), target) }
-            } else {
-                log.info("no selection via accessibility; trying copy")
-                fixSelection(knownText: nil)
-            }
-        case .extendToPhrase(let target):
-            fixTyped(wholePhrase: true, target: target)
+    /// Right ⌥: convert the selected text to the other layout and leave it selected, so another tap converts it back.
+    private func convertSelection() {
+        guard let selection = Selection.current() else {
+            log.info("the app doesn't share its selection; copying it")
+            return fixSelection(nil)
         }
-    }
-
-    /// Erase the segment and type it again on the other layout (or `target`); returns the layout it went to.
-    /// Tapping again later flips it back.
-    @discardableResult
-    private func fixTyped(wholePhrase: Bool, target: KeyLayout? = nil) -> KeyLayout? {
-        guard let range = Converter.segment(of: buffer, wholePhrase: wholePhrase),
-              let target = target ?? Converter.target(for: buffer[range], in: layouts)
-        else { NSSound.beep(); return nil }
-        let source = buffer[range].last(where: { !$0.isSpace }).flatMap { layouts.layout(id: $0.layoutID) }
-        let fixed = Converter.retype(buffer[range], on: target)
-        Typist.erase(count: range.count)
-        Typist.type(fixed.map(\.text).joined())
-        buffer.replaceSubrange(range, with: fixed)
-        switchLayout(to: target, from: source)
-        return target
+        guard !selection.text.isEmpty else {
+            log.info("nothing selected")
+            return NSSound.beep()
+        }
+        log.info("selection via accessibility: \(selection.text.count) chars")
+        fixSelection(selection)
     }
 
     /// Auto mode: on space, fix the word just finished if only the other layout makes it a word.
@@ -197,33 +164,42 @@ final class Fixer {
         return true
     }
 
-    /// Convert the selected text, paste it over the selection, switch the layout and restore the clipboard.
-    /// Apps that don't expose the selection to Accessibility (some browsers) get it copied with ⌘C.
-    private func fixSelection(knownText: String?) {
+    /// Convert the selected text, paste it over the selection, select it again, switch the layout and restore
+    /// the clipboard. Apps that don't share the selection through Accessibility (some browsers) get it copied with ⌘C.
+    private func fixSelection(_ selection: Selection.Current?) {
         let pasteboard = NSPasteboard.general
         let saved = Clipboard.save(pasteboard)
         let replace: (String?) -> Void = { [weak self] text in
             guard let self else { return }
-            guard let text,
-                  let (converted, target) = Converter.convert(text: text, layouts: self.layouts, currentID: self.currentLayoutID)
-            else {
+            guard let text, let (converted, target) = self.conversion(of: text) else {
                 log.info("nothing to convert (copied: \(text?.count ?? -1) chars)")
                 Clipboard.restore(saved, to: pasteboard)
                 NSSound.beep()
                 return
             }
+            self.lastConversion.remember(original: text, output: converted,
+                                         originalLayoutID: self.layouts.other(than: target.id)?.id)
             pasteboard.clearContents()
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { Selection.reselect(converted, after: selection) }
             self.reset()
             self.switchLayout(to: target, from: self.layouts.other(than: target.id))
             log.info("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Clipboard.restore(saved, to: pasteboard) }
         }
-        if let knownText { return replace(knownText) }
+        if let selection { return replace(selection.text) }
         let before = pasteboard.changeCount
         Typist.shortcut(KeyCode.c)
         Clipboard.waitForChange(pasteboard, from: before, then: replace)
+    }
+
+    /// The text on the other layout. Tapping again on what the last tap produced puts back exactly what was there.
+    private func conversion(of text: String) -> (text: String, target: KeyLayout)? {
+        if let back = lastConversion.undo(of: text), let id = back.layoutID, let layout = layouts.layout(id: id) {
+            return (back.text, layout)
+        }
+        return Converter.convert(text: text, layouts: layouts, currentID: currentLayoutID)
     }
 
     private func switchLayout(to layout: KeyLayout, from source: KeyLayout?) {
@@ -261,6 +237,11 @@ enum Typist {
         press(keyCode, flags: .maskCommand)
     }
 
+    /// ⇧← `count` times: selects that many characters before the cursor.
+    static func selectBackward(count: Int) {
+        for _ in 0..<count { press(KeyCode.leftArrow, flags: .maskShift) }
+    }
+
     private static func press(_ keyCode: UInt16, flags: CGEventFlags) {
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }
@@ -277,13 +258,44 @@ enum Typist {
 }
 
 enum Selection {
-    /// The selected text in the focused field, read through Accessibility (Mail, Notes, Slack, most native apps).
-    static func textViaAccessibility() -> String? {
+    /// The selection in the focused field, read through Accessibility (Mail, Notes, Slack, most native apps).
+    struct Current {
+        let element: AXUIElement
+        let text: String  // empty: nothing is selected
+        let range: CFRange?
+    }
+
+    /// nil when the app doesn't share its selection.
+    static func current() -> Current? {
         guard let element = focusedElement() else { return nil }
         var selected: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success,
+              let text = selected as? String
         else { return nil }
-        return selected as? String
+        return Current(element: element, text: text, range: selectedRange(in: element))
+    }
+
+    /// Select the text just pasted over `selection`, so the next tap converts it back:
+    /// through Accessibility where the app allows it, otherwise with ⇧←.
+    static func reselect(_ pasted: String, after selection: Current?) {
+        if let selection, let start = selection.range {
+            var range = CFRange(location: start.location, length: (pasted as NSString).length)
+            if let value = AXValueCreate(.cfRange, &range),
+               AXUIElementSetAttributeValue(selection.element, kAXSelectedTextRangeAttribute as CFString, value) == .success {
+                return
+            }
+        }
+        guard pasted.count <= maxReselectByArrows else { return }
+        Typist.selectBackward(count: pasted.count)
+    }
+
+    private static func selectedRange(in element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXValueGetTypeID()
+        else { return nil }
+        var range = CFRange()
+        return AXValueGetValue(value as! AXValue, .cfRange, &range) ? range : nil
     }
 
     /// Where the text cursor is on screen (top-left origin), for apps that say so.
@@ -467,9 +479,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(info(Setup.pairLine(fixer.layouts)))
         menu.addItem(.separator())
-        menu.addItem(info("Tap right ⌥: fix the selection, or the last word"))
-        menu.addItem(info("Double-tap right ⌥: fix the whole phrase"))
-        menu.addItem(info("Tap again later to flip it back"))
+        menu.addItem(info("Select text, tap right ⌥: convert it"))
+        menu.addItem(info("Tap again: convert it back"))
         menu.addItem(.separator())
         menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))
         menu.addItem(toggle("Fix automatically while typing (beta)", on: fixer.autoFix, action: #selector(toggleAuto)))

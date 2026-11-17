@@ -26,12 +26,10 @@ func typed(_ text: String, on layout: KeyLayout) -> [Typed] {
         return Typed(stroke: stroke, layoutID: layout.id, text: String(char))
     }
 }
-func fix(_ buffer: [Typed], wholePhrase: Bool, in layouts: LayoutSet = ukrainianSet) -> String? {
-    guard let range = Converter.segment(of: buffer, wholePhrase: wholePhrase),
-          let target = Converter.target(for: buffer[range], in: layouts) else { return nil }
-    var out = buffer
-    out.replaceSubrange(range, with: Converter.retype(buffer[range], on: target))
-    return out.map(\.text).joined()
+/// The same keys on the other layout (what fix-while-typing does to a word).
+func retype(_ buffer: [Typed], in layouts: LayoutSet = ukrainianSet) -> String? {
+    guard let typedOn = buffer.last?.layoutID, let target = layouts.other(than: typedOn) else { return nil }
+    return Converter.retype(buffer[...], on: target).map(\.text).joined()
 }
 func select(_ text: String, in layouts: LayoutSet = ukrainianSet, current: String? = nil) -> String? {
     Converter.convert(text: text, layouts: layouts, currentID: current.map { "com.apple.keylayout.\($0)" })?.text
@@ -46,45 +44,42 @@ check("selection of digits only is left alone", select("123"), "nil")
 check("selection from the email", select("рун умукнщту, рщц фку нщг вщштп , "), "hey everyone, how are you doing , ")
 check("selection keeps @ in en→uk", select("ghbdsn@"), "привіт@")
 
-// Typed buffer: replay the keys.
-check("phrase en→uk", fix(typed("ghbdsn wt z", on: english), wholePhrase: true), "привіт це я")
-check("phrase uk→en", fix(typed("руддщ шеєі ьу", on: ukrainian), wholePhrase: true), "hello it's me")
-check("last word only", fix(typed("я люблю ізщешан", on: ukrainian), wholePhrase: false), "я люблю spotify")
-check("last word with trailing space", fix(typed("ghbdsn ", on: english), wholePhrase: false), "привіт ")
-check("punctuation keys are letters", fix(typed("lj,hjuj", on: english), wholePhrase: false), "доброго")
-check("flip twice returns", fix(typed(fix(typed("ghbdsn", on: english), wholePhrase: false)!, on: ukrainian), wholePhrase: false), "ghbdsn")
-
-// Double tap: the last word goes first, then the rest of the phrase follows it to the same layout.
-func doubleTap(_ buffer: [Typed], in layouts: LayoutSet = ukrainianSet) -> String? {
-    guard let word = Converter.segment(of: buffer, wholePhrase: false),
-          let target = Converter.target(for: buffer[word], in: layouts) else { return nil }
-    var out = buffer
-    out.replaceSubrange(word, with: Converter.retype(buffer[word], on: target))
-    guard let phrase = Converter.segment(of: out, wholePhrase: true) else { return nil }
-    out.replaceSubrange(phrase, with: Converter.retype(out[phrase], on: target))
-    return out.map(\.text).joined()
-}
-check("double tap: whole phrase en→uk", doubleTap(typed("ghbdsn wt z", on: english)), "привіт це я")
-check("double tap: whole phrase uk→en", doubleTap(typed("руддщ шеєі ьу", on: ukrainian)), "hello it's me")
-check("double tap again flips the phrase back", doubleTap(typed("привіт це я", on: ukrainian)), "ghbdsn wt z")
+// Typed keys replayed on the other layout.
+check("keys en→uk", retype(typed("ghbdsn wt z", on: english)), "привіт це я")
+check("keys uk→en", retype(typed("руддщ шеєі ьу", on: ukrainian)), "hello it's me")
+check("punctuation keys are letters", retype(typed("lj,hjuj", on: english)), "доброго")
+check("flip twice returns", retype(typed(retype(typed("ghbdsn", on: english))!, on: ukrainian)), "ghbdsn")
 let optionSpace = Typed(stroke: KeyStroke(keyCode: 49, modifiers: KeyStroke.option), layoutID: english.id, text: "\u{00A0}")
-check("⌥Space (non-breaking space) separates words",
-      fix(typed("ghbdsn", on: english) + [optionSpace] + typed("wt", on: english), wholePhrase: false), "ghbdsn\u{00A0}це")
+check("⌥Space (non-breaking space) stays", retype(typed("ghbdsn", on: english) + [optionSpace] + typed("wt", on: english)), "привіт\u{00A0}це")
+
+// Selection back and forth, the way the app does it: the second tap undoes the first exactly.
+func backAndForth(_ text: String) -> String? {
+    var memory = LastConversion()
+    guard let first = Converter.convert(text: text, layouts: ukrainianSet) else { return nil }
+    memory.remember(original: text, output: first.text, originalLayoutID: ukrainianSet.other(than: first.target.id)?.id)
+    return memory.undo(of: first.text)?.text
+}
+for text in ["рун умукнщту, рщц фку нщг вщштп", "ghbdsn wt z", "Hello it's me"] {
+    check("selection round trip: \(text)", backAndForth(text), text)
+}
+var memory = LastConversion()
+memory.remember(original: "ghbdsn", output: "привіт", originalLayoutID: nil)
+check("other text is converted, not undone", memory.undo(of: "привіт це я")?.text, "nil")
 
 // Other languages ↔ English.
-check("russian: en→ru", fix(typed("ghbdtn vbh", on: russianSet.english!), wholePhrase: true, in: russianSet), "привет мир")
+check("russian: en→ru", retype(typed("ghbdtn vbh", on: russianSet.english!), in: russianSet), "привет мир")
 check("russian: ru→en", select("руддщ цщкдв", in: russianSet), "hello world")
-check("greek: en→el", fix(typed("geia", on: greekSet.english!), wholePhrase: true, in: greekSet), "γεια")
+check("greek: en→el", retype(typed("geia", on: greekSet.english!), in: greekSet), "γεια")
 check("greek: el→en", select("ηελλο", in: greekSet), "hello")
-check("german: en→de swaps y/z", fix(typed("yu Hause", on: germanSet.english!), wholePhrase: true, in: germanSet), "zu Hause")
+check("german: en→de swaps y/z", retype(typed("yu Hause", on: germanSet.english!), in: germanSet), "zu Hause")
 check("german: selection uses the layout that is on", select("yu", in: germanSet, current: "ABC"), "zu")
 
 // Several local layouts: English flips to the one you used last; Cyrillic goes back to English.
 let threeUA = layoutSet(["ABC", "Ukrainian-PC", "RussianWin"], preferred: "Ukrainian-PC")
 let threeRU = layoutSet(["ABC", "Ukrainian-PC", "RussianWin"], preferred: "RussianWin")
-check("three layouts: en→last used (uk)", fix(typed("ghbdsn", on: threeUA.english!), wholePhrase: false, in: threeUA), "привіт")
-check("three layouts: en→last used (ru)", fix(typed("ghbdtn", on: threeRU.english!), wholePhrase: false, in: threeRU), "привет")
-check("three layouts: ru→en", fix(typed("руддщ", on: threeUA.layout(id: "com.apple.keylayout.RussianWin")!), wholePhrase: false, in: threeUA), "hello")
+check("three layouts: en→last used (uk)", retype(typed("ghbdsn", on: threeUA.english!), in: threeUA), "привіт")
+check("three layouts: en→last used (ru)", retype(typed("ghbdtn", on: threeRU.english!), in: threeRU), "привет")
+check("three layouts: ru→en", retype(typed("руддщ", on: threeUA.layout(id: "com.apple.keylayout.RussianWin")!), in: threeUA), "hello")
 check("three layouts: Cyrillic selection→en", select("руддщ", in: threeRU, current: "ABC"), "hello")
 check("three layouts: ї means Ukrainian", Converter.typedLayout(of: "їжак", layouts: threeRU)?.language, "uk")
 let noEnglish = layoutSet(["Ukrainian-PC", "RussianWin"])

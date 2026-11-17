@@ -11,26 +11,6 @@ struct Typed {
 }
 
 enum Converter {
-    /// The part of the buffer to fix: the last word (with any spaces after it), or the whole phrase
-    /// typed since the last click, Enter or arrow key.
-    static func segment(of buffer: [Typed], wholePhrase: Bool) -> Range<Int>? {
-        var index = buffer.count - 1
-        while index >= 0 && buffer[index].isSpace { index -= 1 }
-        guard index >= 0 else { return nil }
-        if wholePhrase {
-            let start = buffer.firstIndex { !$0.isSpace } ?? 0
-            return start..<buffer.count
-        }
-        while index >= 0 && !buffer[index].isSpace { index -= 1 }
-        return (index + 1)..<buffer.count
-    }
-
-    /// The layout the segment should have been typed in: the other one from its last word's layout.
-    static func target(for segment: ArraySlice<Typed>, in layouts: LayoutSet) -> KeyLayout? {
-        guard let typedIn = segment.last(where: { !$0.isSpace })?.layoutID else { return nil }
-        return layouts.other(than: typedIn)
-    }
-
     /// The same key presses, replayed on the target layout. Spaces stay spaces.
     static func retype(_ segment: ArraySlice<Typed>, on target: KeyLayout) -> [Typed] {
         segment.map { typed in
@@ -76,5 +56,23 @@ enum Converter {
             ?? candidates.first { $0.id == layouts.english?.id }
             ?? candidates.first { $0.id == layouts.local?.id }
             ?? candidates.first
+    }
+}
+
+/// The last selection conversion, so converting its result again gives back exactly the original. Converting
+/// back by keys alone can drift: "," is kept going to English, but the English "," key types "б" on Ukrainian.
+struct LastConversion {
+    private var original: String?
+    private var output: String?
+    private var originalLayoutID: String?
+
+    mutating func remember(original: String, output: String, originalLayoutID: String?) {
+        (self.original, self.output, self.originalLayoutID) = (original, output, originalLayoutID)
+    }
+
+    /// The original text and its layout, when `text` is what the last conversion produced.
+    func undo(of text: String) -> (text: String, layoutID: String?)? {
+        guard let original, text == output else { return nil }
+        return (original, originalLayoutID)
     }
 }

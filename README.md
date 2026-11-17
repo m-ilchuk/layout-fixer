@@ -28,15 +28,11 @@ Needs macOS 13 or newer, on Apple silicon or Intel.
 
 ## Use
 
-Everything is on the **right ⌥** key, pressed on its own:
+**Select the text and tap the right ⌥ key** (on its own). It is converted to the other layout, stays selected, and
+the keyboard layout switches with it. Tap again to convert it back exactly as it was.
 
-| | What it does |
-|---|---|
-| **Tap** | Convert the **selected** text; with nothing selected, the last word you typed |
-| **Double-tap** | Convert the whole phrase since the last click, Enter or arrow key |
-| **Tap again later** | Flip it back |
-
-Each one also switches the keyboard layout. ⌥Space and the other ⌥ shortcuts are left to your apps.
+Apps that don't share their selection with macOS (some browsers) get it copied and pasted instead; your clipboard
+is put back afterwards.
 
 After each fix a small badge such as `UK → EN` shows under the text cursor for a moment (menu › **Show a flash
 when fixing** turns it off).
@@ -46,7 +42,7 @@ when fixing** turns it off).
 Layout Fixer uses the keyboard layouts you have turned on (System Settings › Keyboard › Text Input › Input Sources),
 reading each layout's keys from macOS, so any language works without setup. Text typed on your language's layout
 goes to English, and English goes to your language. With several languages turned on (say Ukrainian and Polish),
-English goes to the one you used last, and selected text goes back from whichever layout can type it. The menu
+English goes to the one you used last, and text goes back from whichever layout can type it. The menu
 shows the pair it uses now.
 
 Fix-while-typing checks words with the macOS dictionaries (40+ languages, including uk, pl, bg, el, he, de, fr,
