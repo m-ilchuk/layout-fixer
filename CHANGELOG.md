@@ -11,6 +11,9 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 - Fix while typing no longer trusts the character inside the key event to tell the layout: right after it switched
   the layout itself, that character could stay on the old layout for whole words, so `ghjqikf` after `Stripe`, or the
   first word of a line, could be left as typed even when typed slowly.
+- Short words at the start of a line are fixed along with the next word when they're only a word on the other layout:
+  `Z просто` → `Я просто`, `Ш фь just` → `I am just`, `Nb зробив` → `Ти зробив`. Real short words stay
+  (`синхронізацію з Constant`).
 
 ## 0.2.5 — 2026-11-17
 

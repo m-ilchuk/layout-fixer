@@ -78,14 +78,21 @@ enum AutoFix {
 
         // Walk back over the words before it typed in the same layout; stop at the first that belongs there.
         // Without a dictionary for the source language nothing can be said to belong, so fix only this word.
-        // A short word ("з", "і", "a") is a word in both languages, so it says nothing: it goes along only when a
-        // longer word before it goes too ("руддщ ш цфте" → "hello i want"), never on its own ("синхронізацію з").
+        // A short word is judged on its own: "Z" isn't English but "Я" is Ukrainian, so it goes ("Z просто" →
+        // "Я просто"); "з" is Ukrainian, so it stays ("синхронізацію з Constant"). One the two languages can't tell
+        // apart goes along only when a longer word before it goes too.
         var start = last.lowerBound
         let canJudgeEarlierWords = speller.supports(source.language) && speller.supports(target.language)
         for word in words.dropLast().reversed() where canJudgeEarlierWords {
             guard let (wordSource, _) = layoutsOf(buffer[word], layouts: layouts), wordSource.id == source.id
             else { break }
-            if buffer[word].count < minimumLength { continue }
+            if buffer[word].count < minimumLength {
+                let typed = buffer[word].map(\.text).joined()
+                let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
+                if readsAsShortWord(typed, language: source.language, speller: speller) { break }
+                if readsAsShortWord(fixed, language: target.language, speller: speller) { start = word.lowerBound }
+                continue
+            }
             guard !belongsToSource(buffer[word], source: source, target: target, speller: speller) else { break }
             start = word.lowerBound  // takes the short words between this word and the fixed one along
         }
@@ -138,6 +145,23 @@ enum AutoFix {
     /// as two k's: a word with punctuation inside it isn't one.
     private static func readsAsWord(_ word: String, language: String, speller: Speller) -> Bool {
         looksLikeWord(word) && speller.isValid(word, language: language)
+    }
+
+    /// The only one-letter words of a language. The spell checker takes any single letter ("Z", "p"), so it can't
+    /// tell "Я" (a word) from "Z" (not one).
+    static let oneLetterWords: [String: Set<Character>] = [
+        "en": ["a", "i"],
+        "uk": ["а", "в", "з", "і", "й", "о", "у", "я"],
+        "ru": ["а", "в", "и", "к", "о", "с", "у", "я"],
+    ]
+
+    /// A one- or two-letter word that is a real word in `language`. Checked lowercase: capitalised, the spell
+    /// checker takes symbols and abbreviations too ("Nb", niobium; "nb" isn't a word).
+    static func readsAsShortWord(_ word: String, language: String, speller: Speller) -> Bool {
+        let core = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        guard !core.isEmpty, core.allSatisfy(\.isLetter) else { return false }
+        if core.count == 1, let letters = oneLetterWords[language] { return letters.contains(core.first!) }
+        return speller.isValid(core, language: language)
     }
 
     private static func closeCorrection(_ word: String, language: String, speller: Speller) -> Bool {

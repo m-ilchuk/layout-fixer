@@ -304,10 +304,19 @@ chain("row: Інтеграція з Stripe була успішною", startOn: 
       expect: "Інтеграція з Stripe була успішною")
 chain("row: Їжак на (two-letter word after a fix stays right)", startOn: english,
       [("Їжак", ukrainian), ("на", ukrainian)], expect: "Їжак на")
-chain("row: Ти зробив синхронізацію з Constant Contact? (Ти, two letters, is left as typed)", startOn: english,
+chain("row: Ти зробив синхронізацію з Constant Contact?", startOn: english,
       [("Ти", ukrainian), ("зробив", ukrainian), ("синхронізацію", ukrainian), ("з", ukrainian),
        ("Constant", english), ("Contact?", english)],
-      expect: "Nb зробив синхронізацію з Constant Contact?")
+      expect: "Ти зробив синхронізацію з Constant Contact?")
+chain("row: I am just shocked (starts with two short words)", startOn: ukrainian,
+      [("I", english), ("am", english), ("just", english), ("shocked", english)],
+      expect: "I am just shocked")
+chain("row: Я просто в шоці наскільки це круто (starts with a one-letter word)", startOn: english,
+      [("Я", ukrainian), ("просто", ukrainian), ("в", ukrainian), ("шоці", ukrainian), ("наскільки", ukrainian),
+       ("це", ukrainian), ("круто", ukrainian)],
+      expect: "Я просто в шоці наскільки це круто")
+chain("a real short word before a fixed one stays: I ghbdsn", startOn: english,
+      [("I", english), ("привіт", ukrainian)], expect: "I привіт")
 chain("русский текст и English (Russian)", startOn: russianSet.english!,
       [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
       expect: "привет мир hello world", in: russianSet)
