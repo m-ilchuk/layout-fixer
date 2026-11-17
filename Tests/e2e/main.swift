@@ -147,6 +147,7 @@ func typeScenario(_ sentences: [String], _ scenario: Scenario) -> [String] {
     }
     usleep(settle)
     let text = run("tell application \"TextEdit\" to get text of front document") ?? ""
+    _ = run("tell application \"TextEdit\" to close front document saving no")
     return text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
 }
 
@@ -172,7 +173,9 @@ for scenario in Scenario.allCases {
     details.forEach { print($0) }
     report += [summary] + details + [""]
 }
+_ = run("tell application \"TextEdit\" to quit saving no")  // it was closed when the test started
+usleep(500_000)
 cleanUp()
 try? report.joined(separator: "\n").write(to: reportURL, atomically: true, encoding: .utf8)
-print("e2e: done. The documents stay open in TextEdit; the report is in \(reportURL.path).")
+print("e2e: done. TextEdit is closed again; the report is in \(reportURL.path).")
 exit(misses == 0 ? 0 : 1)

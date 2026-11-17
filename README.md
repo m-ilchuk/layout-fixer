@@ -170,8 +170,8 @@ LAYOUT_FIXER_UNIVERSAL=1 ./build.sh   # one app for Apple silicon and Intel, to 
 
 `./e2e.sh` is the end-to-end test: it types corpus sentences into TextEdit with real key presses while the real
 Layout Fixer runs, one document per scenario and a line per sentence, and checks what TextEdit shows
-(`./e2e.sh all` for every sentence). The documents stay open, and the scores and misses go to
-`build/e2e-report.txt`. Run it from Terminal.app with TextEdit closed: it turns TextEdit's own autocorrect off for
+(`./e2e.sh all` for every sentence). It closes the documents without saving and quits TextEdit when it's done;
+the scores and misses go to `build/e2e-report.txt`. Run it from Terminal.app with TextEdit closed: it turns TextEdit's own autocorrect off for
 the run (so only Layout Fixer's fixes count) and back on after. It needs Accessibility for
 Terminal, asks once to control TextEdit, and takes over the keyboard for a few minutes.
 
