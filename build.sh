@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds LayoutFixer.app for Apple silicon and Intel (and runs the tests with --test).
+# Builds "Layout Fixer.app" for Apple silicon and Intel (and runs the tests with --test).
 # Needs only Apple's command line tools (xcode-select --install).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -16,7 +16,7 @@ if [[ "${1:-}" == "--test" ]]; then
 fi
 
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist)
-APP=build/LayoutFixer.app
+APP="build/Layout Fixer.app"  # the program inside is still LayoutFixer
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 # "==> " lines are progress steps: get.sh shows the latest one while it waits.

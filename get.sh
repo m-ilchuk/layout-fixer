@@ -3,7 +3,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/main/get.sh | bash
 #
 # Downloads the source, builds it on this Mac (nothing prebuilt is downloaded, so Gatekeeper has nothing to
-# block), installs ~/Applications/LayoutFixer.app and starts it. Reads nothing from stdin, so it is safe to pipe.
+# block), installs "~/Applications/Layout Fixer.app" and starts it. Reads nothing from stdin, so it is safe to pipe.
 set -euo pipefail
 
 REPO="m-ilchuk/layout-fixer"
@@ -23,7 +23,7 @@ if ! xcrun --find swiftc >/dev/null 2>&1; then
 fi
 
 UPDATING=0
-[[ -d ~/Applications/LayoutFixer.app ]] && UPDATING=1
+[[ -d ~/Applications/"Layout Fixer.app" || -d ~/Applications/LayoutFixer.app ]] && UPDATING=1
 
 # The latest release (v1.2.0, …); LAYOUT_FIXER_REF=main installs the newest code instead.
 if [[ -n "${LAYOUT_FIXER_SOURCE_URL:-}" ]]; then
@@ -65,24 +65,24 @@ fi
 if [[ -t 1 ]]; then printf '\r  ✓ Built in %ds%40s\n' $((SECONDS - START)) ""; else echo "Built in $((SECONDS - START))s"; fi
 
 echo
-"$HOME/Applications/LayoutFixer.app/Contents/MacOS/LayoutFixer" --layouts || true
+"$HOME/Applications/Layout Fixer.app/Contents/MacOS/LayoutFixer" --layouts || true
 if (( UPDATING )); then
   cat <<'MSG'
 
 Layout Fixer is updated and running.
 
 Allow it again: macOS sees each new build as a new app. Open System Settings › Privacy & Security ›
-Accessibility, select LayoutFixer, remove it with –, then add it again with + (press ⌘⇧G and type
-~/Applications/LayoutFixer.app) and turn it on.
+Accessibility, select LayoutFixer or Layout Fixer, remove it with –, then add it again with + (press ⌘⇧G
+and type ~/Applications/Layout Fixer.app) and turn it on.
 MSG
 else
   cat <<'MSG'
 
 Layout Fixer is installed in ~/Applications and running (⚠ in the menu bar until you allow it).
 
-One step left: a dialog asks to let "LayoutFixer" control this computer. Click Open System Settings and
-turn on LayoutFixer. No dialog? Open System Settings › Privacy & Security › Accessibility, click +,
-press ⌘⇧G, type ~/Applications/LayoutFixer.app, click Open and turn it on.
+One step left: a dialog asks to let "Layout Fixer" control this computer. Click Open System Settings and
+turn on Layout Fixer. No dialog? Open System Settings › Privacy & Security › Accessibility, click +,
+press ⌘⇧G, type ~/Applications/Layout Fixer.app, click Open and turn it on.
 MSG
 fi
 cat <<'MSG'

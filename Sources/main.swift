@@ -453,6 +453,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updater.onChange = { [weak self] in self?.changed(); self?.refreshIcon() }
         updater.start()
 
+        // Open at login belongs to the app's place on disk: after a move or rename, turn it back on.
+        if UserDefaults.standard.bool(forKey: "openAtLogin") && SMAppService.mainApp.status != .enabled {
+            try? SMAppService.mainApp.register()
+        }
+
         // First launch, or not allowed yet: show the window, which says what to do (the icon may be hidden).
         let firstLaunch = !UserDefaults.standard.bool(forKey: "launchedBefore")
         UserDefaults.standard.set(true, forKey: "launchedBefore")
@@ -633,7 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "Install Layout Fixer \(release.version)?"
         alert.informativeText = (notes.isEmpty ? "" : notes + "\n\n") + "It downloads, builds on this Mac "
             + "(about a minute) and restarts by itself. macOS then asks you to allow it in Accessibility again: "
-            + "remove the old LayoutFixer from that list with – and add it again with +."
+            + "remove the old Layout Fixer from that list with – and add it again with +."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Later")
         NSApp.activate(ignoringOtherApps: true)
@@ -650,6 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setOpenAtLogin(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: "openAtLogin")
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {

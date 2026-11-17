@@ -81,9 +81,32 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         guard let view = window.contentView else { return }
         view.layoutSubtreeIfNeeded()
         view.frame.size = view.fittingSize
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        try bitmap.representation(using: .png, properties: [:])?.write(to: url)
+        guard let content = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: content)
+        // The view itself is transparent: put it on the window's own background (with its rounded corners and a
+        // hairline), so the image reads on any page, GitHub's dark theme included.
+        guard let image = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: content.pixelsWide,
+                                           pixelsHigh: content.pixelsHigh, bitsPerSample: 8, samplesPerPixel: 4,
+                                           hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                           bytesPerRow: 0, bitsPerPixel: 0)
+        else { return }
+        image.size = content.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: image)
+        let frame = NSRect(origin: .zero, size: content.size).insetBy(dx: 0.5, dy: 0.5)
+        let shape = NSBezierPath(roundedRect: frame, xRadius: 12, yRadius: 12)
+        NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
+            NSColor.windowBackgroundColor.setFill()
+            shape.fill()
+            NSColor.separatorColor.setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+        }
+        // Over the background, not in place of it (a bare draw(in:) copies the transparent pixels too).
+        content.draw(in: NSRect(origin: .zero, size: content.size), from: .zero, operation: .sourceOver,
+                     fraction: 1, respectFlipped: true, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        try image.representation(using: .png, properties: [:])?.write(to: url)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -105,8 +128,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         heading.alignment = .centerY
 
         accessLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        accessHelp.stringValue = "Turn on LayoutFixer in the list. Not there? Click +, press ⌘⇧G, type "
-            + "~/Applications/LayoutFixer.app, click Open and turn it on."
+        accessHelp.stringValue = "Turn on Layout Fixer in the list. Not there? Click +, press ⌘⇧G, type "
+            + "~/Applications/Layout Fixer.app, click Open and turn it on."
         accessHelp.textColor = .secondaryLabelColor
         accessButton.target = self
         accessButton.action = #selector(openAccessibility)
@@ -125,7 +148,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let notch = NSTextField(wrappingLabelWithString:
             "Click the keyboard icon in the menu bar to get back here (right-click it for a short menu). Can't "
-            + "see it? On MacBooks with a notch, macOS hides icons that don't fit: open LayoutFixer again "
+            + "see it? On MacBooks with a notch, macOS hides icons that don't fit: open Layout Fixer again "
             + "(Spotlight) instead.")
         notch.textColor = .secondaryLabelColor
         notch.font = .systemFont(ofSize: NSFont.smallSystemFontSize)

@@ -22,12 +22,12 @@ A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and 
    It downloads the latest release, builds it on your Mac (about a minute) and starts it. Building needs Apple's
    free command line tools: if they're missing, a window offers to install them. Click **Install**, wait for it to
    finish, then paste the line again.
-3. **Allow it.** The Layout Fixer window opens, and a dialog says *"LayoutFixer" would like to control this
-   computer using accessibility features*. Click **Open System Settings** and turn on **LayoutFixer**. macOS may
+3. **Allow it.** The Layout Fixer window opens, and a dialog says *"Layout Fixer" would like to control this
+   computer using accessibility features*. Click **Open System Settings** and turn on **Layout Fixer**. macOS may
    ask for your password or Touch ID.
 
-   No dialog, or LayoutFixer isn't in the list? Open System Settings › Privacy & Security › **Accessibility**, click
-   **+**, press ⌘⇧G, type `~/Applications/LayoutFixer.app`, press Return, click **Open** and turn it on.
+   No dialog, or Layout Fixer isn't in the list? Open System Settings › Privacy & Security › **Accessibility**, click
+   **+**, press ⌘⇧G, type `~/Applications/Layout Fixer.app`, press Return, click **Open** and turn it on.
 4. Within a few seconds the window says **✓ Allowed in Accessibility** and the menu bar icon changes from ⚠ to ⌨.
    Done.
 
@@ -49,7 +49,7 @@ now Ukrainian. Tap again and it's back to `ghbdsn`.
 
 ## Settings
 
-Click the ⌨ icon in the menu bar, or open **LayoutFixer** again (Spotlight or `~/Applications`), to get its window.
+Click the ⌨ icon in the menu bar, or open **Layout Fixer** again (Spotlight or `~/Applications`), to get its window.
 Right-click the icon for a short menu: **Enabled**, **Settings…** and **Quit**.
 
 <img src="docs/settings.png" width="460" alt="The Layout Fixer window: Accessibility status, how to use it, the layout pair and the settings">
@@ -64,7 +64,7 @@ In the window:
 - **Show a flash when fixing**: the `UK → EN` badge.
 - **Open at login**.
 - **Show icon in menu bar**: macOS already shows the current layout, so the icon can go; the window is always
-  there when you open LayoutFixer again. While it waits for Accessibility it shows ⚠ even when hidden.
+  there when you open Layout Fixer again. While it waits for Accessibility it shows ⚠ even when hidden.
 - **Check for Updates…** and **Check for updates automatically** (once a day).
 
 ## Layouts
@@ -84,21 +84,22 @@ Click it, read what's new and click
 **Install**: it downloads, builds and restarts by itself in about a minute (the icon shows ⟳ meanwhile).
 
 **After every update, allow it again.** macOS sees each new build as a new app: in Privacy & Security ›
-**Accessibility**, select LayoutFixer, remove it with **–**, then add it again with **+** as in step 3 above.
+**Accessibility**, select Layout Fixer, remove it with **–**, then add it again with **+** as in step 3 above.
+(Updating from 0.1.0, the app was still called LayoutFixer: remove that entry and add **Layout Fixer**.)
 
 You can also update by running the install line again.
 
 ## Troubleshooting
 
 - **I can't see the icon in the menu bar.** On MacBooks with a notch, macOS hides menu bar icons that don't fit
-  next to it. Open LayoutFixer again from Spotlight to get its window, or make room: hold ⌘ and drag icons you
+  next to it. Open Layout Fixer again from Spotlight to get its window, or make room: hold ⌘ and drag icons you
   don't need off the menu bar.
-- **Nothing happens when I tap right ⌥.** Open LayoutFixer again: its window says whether it is allowed in
+- **Nothing happens when I tap right ⌥.** Open Layout Fixer again: its window says whether it is allowed in
   Accessibility (see Install, step 3) and whether it is **Enabled**. Tap the key quickly and on its own: holding it, or pressing another key
   with it, is ⌥ doing its usual job.
 - **It beeps.** Nothing is selected and you haven't typed anything since your last click, so there is nothing to
   convert.
-- **It stopped working after an update.** Allow it again: remove LayoutFixer from the Accessibility list with **–**
+- **It stopped working after an update.** Allow it again: remove Layout Fixer from the Accessibility list with **–**
   and add it back with **+**.
 - **Wrong text in a browser or chat app.** Some apps don't tell macOS what is selected. Layout Fixer then copies the
   selection, converts it and pastes it back (your clipboard is restored after). Tap once and wait half a second
@@ -113,7 +114,7 @@ You can also update by running the install line again.
 
 ## Uninstall
 
-Quit it (right-click the ⌨ icon › **Quit Layout Fixer**), delete `~/Applications/LayoutFixer.app`, and remove LayoutFixer from Privacy & Security ›
+Quit it (right-click the ⌨ icon › **Quit Layout Fixer**), delete `~/Applications/Layout Fixer.app`, and remove Layout Fixer from Privacy & Security ›
 Accessibility with **–**.
 
 ## Privacy
@@ -151,7 +152,7 @@ build has to be allowed again. A local certificate fixes that (once, about a min
 1. Keychain Access › menu **Keychain Access › Certificate Assistant › Create a Certificate…**
 2. Name `LayoutFixer Local Signing`, Identity Type **Self-Signed Root**, Certificate Type **Code Signing** › Create.
 3. In the **login** keychain, double-click the new certificate › **Trust** › Code Signing: **Always Trust**.
-4. `./install.sh` (it prints `signed with LayoutFixer Local Signing`), then allow LayoutFixer one last time.
+4. `./install.sh` (it prints `signed with LayoutFixer Local Signing`), then allow Layout Fixer one last time.
 
 `build.sh` uses the certificate whenever it finds it, and signs ad-hoc otherwise.
 
