@@ -35,7 +35,7 @@ echo "Building (about a minute)…"
 
 cat <<'MSG'
 
-Layout Fixer is installed in ~/Applications and running (look for EN/UK in the menu bar).
+Layout Fixer is installed in ~/Applications and running (the ⌨ icon in the menu bar).
 
 One step left: allow it in System Settings › Privacy & Security › Accessibility.
 MSG
