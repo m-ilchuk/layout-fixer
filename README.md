@@ -1,7 +1,7 @@
 # Layout Fixer
 
 A small menu bar app for macOS that fixes text typed in the wrong keyboard layout, between English and your
-language (Ukrainian, Russian, Greek, Bulgarian, Hebrew, German, …), then switches the layout for you:
+language (Ukrainian, Polish, Greek, Bulgarian, Hebrew, German, …), then switches the layout for you:
 `ghbdsn` → `привіт`, `руддщ` → `hello`.
 
 ## Install
@@ -42,11 +42,11 @@ when fixing** turns it off).
 
 Layout Fixer uses the keyboard layouts you have turned on (System Settings › Keyboard › Text Input › Input Sources),
 reading each layout's keys from macOS, so any language works without setup. Text typed on your language's layout
-goes to English, and English goes to your language. With several languages turned on (say Ukrainian and Russian),
+goes to English, and English goes to your language. With several languages turned on (say Ukrainian and Polish),
 English goes to the one you used last, and selected text goes back from whichever layout can type it. The menu
 shows the pair it uses now.
 
-Fix-while-typing checks words with the macOS dictionaries (40+ languages, including uk, ru, bg, el, he, de, fr, pl,
+Fix-while-typing checks words with the macOS dictionaries (40+ languages, including uk, pl, bg, el, he, de, fr,
 cs). For a language without one, it still fixes words that should be English; the hotkeys work for every language.
 
 ## Menu bar
