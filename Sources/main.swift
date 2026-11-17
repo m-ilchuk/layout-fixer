@@ -322,6 +322,11 @@ func tapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refc
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var tapRetry: Timer?
+    private var waitingForAccess = false
+    /// macOS already shows the layout (its "A" / "УК" menu); this icon is only for settings, so it can go.
+    private var hideIcon = UserDefaults.standard.bool(forKey: "hideIcon") {
+        didSet { UserDefaults.standard.set(hideIcon, forKey: "hideIcon"); refreshIcon() }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         fixer.reloadLayouts()
@@ -329,7 +334,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
                            object: nil, queue: .main) { _ in
             fixer.currentLayoutID = KeyLayout.currentLayoutID()
-            self.refreshTitle()
         }
         center.addObserver(forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String),
                            object: nil, queue: .main) { _ in fixer.reloadLayouts() }
@@ -338,7 +342,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         rebuildMenu()
+        refreshIcon()
         startTap()
+    }
+
+    /// Opening the app again (Spotlight, Finder) while it runs brings a hidden icon back and opens its menu.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        hideIcon = false
+        DispatchQueue.main.async { self.statusItem.button?.performClick(nil) }
+        return false
     }
 
     private var askedForAccess = false
@@ -358,8 +370,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log.info("access: accessibility=\(trusted) inputMonitoring=\(listen)")
         // A tap made before Accessibility is granted gets no key presses even after it is granted, so wait for it.
         // A tap that can change keys needs only Accessibility; Input Monitoring is for listen-only taps.
+        waitingForAccess = !trusted
         guard trusted else {
-            refreshTitle(warning: true)
+            refreshIcon()
             retryTap()
             return
         }
@@ -369,7 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           eventsOfInterest: mask, callback: tapCallback, userInfo: nil)
         else {
             log.error("tapCreate failed although access is granted")
-            refreshTitle(warning: true)
+            waitingForAccess = true
+            refreshIcon()
             retryTap()
             return
         }
@@ -378,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
         log.info("listening for keys")
-        refreshTitle()
+        refreshIcon()
     }
 
     private func retryTap() {
@@ -386,10 +400,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tapRetry = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in self.startTap() }
     }
 
-    private func refreshTitle(warning: Bool = false) {
-        let short = fixer.currentLayoutID.flatMap { fixer.layouts.layout(id: $0) }?.language.uppercased() ?? "?"
-        statusItem.button?.title = warning ? "⚠︎ \(short)" : (fixer.enabled ? short : "(\(short))")
-        statusItem.button?.toolTip = warning ? "Layout Fixer needs Accessibility and Input Monitoring" : "Layout Fixer"
+    /// A small keyboard icon; a warning sign (shown even when hidden) while Accessibility is not allowed.
+    private func refreshIcon() {
+        guard let button = statusItem.button else { return }
+        let symbol = waitingForAccess ? "exclamationmark.triangle" : "keyboard"
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Layout Fixer")
+        button.image?.isTemplate = true
+        button.title = ""
+        button.appearsDisabled = !fixer.enabled && !waitingForAccess
+        button.toolTip = waitingForAccess
+            ? "Layout Fixer: allow it in System Settings › Privacy & Security › Accessibility"
+            : (fixer.enabled ? "Layout Fixer" : "Layout Fixer (off)")
+        statusItem.isVisible = waitingForAccess || !hideIcon
     }
 
     private func rebuildMenu() {
@@ -402,6 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(toggle("Enabled", on: fixer.enabled, action: #selector(toggleEnabled)))
         menu.addItem(toggle("Fix automatically while typing (beta)", on: fixer.autoFix, action: #selector(toggleAuto)))
         menu.addItem(toggle("Open at login", on: SMAppService.mainApp.status == .enabled, action: #selector(toggleLogin)))
+        menu.addItem(item("Hide menu bar icon", action: #selector(hideMenuBarIcon)))
         menu.addItem(.separator())
         menu.addItem(item("Privacy settings…", action: #selector(openPrivacy)))
         menu.addItem(item("Quit Layout Fixer", action: #selector(quit), key: "q"))
@@ -426,7 +449,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    @objc private func toggleEnabled() { fixer.enabled.toggle(); fixer.reset(); rebuildMenu(); refreshTitle() }
+    @objc private func toggleEnabled() { fixer.enabled.toggle(); fixer.reset(); rebuildMenu(); refreshIcon() }
+
+    @objc private func hideMenuBarIcon() {
+        let alert = NSAlert()
+        alert.messageText = "Hide the Layout Fixer icon?"
+        alert.informativeText = "Layout Fixer keeps working. To bring the icon back, open Layout Fixer again "
+            + "(Spotlight: “LayoutFixer”, or ~/Applications)."
+        alert.addButton(withTitle: "Hide")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { hideIcon = true }
+    }
     @objc private func toggleAuto() { fixer.autoFix.toggle(); rebuildMenu() }
 
     @objc private func toggleLogin() {

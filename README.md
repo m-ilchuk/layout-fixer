@@ -31,6 +31,10 @@ Needs macOS 13 or newer, on Apple silicon or Intel.
 | ⌥⇧Space | Convert the **selected** text; with nothing selected, the whole phrase since the last click / Enter / arrow key |
 | same key again | Flip it back |
 
+The ⌨ icon in the menu bar holds the settings. macOS already shows the current layout, so you can hide the icon
+(menu › **Hide menu bar icon**); open LayoutFixer again from Spotlight to bring it back. It shows ⚠ instead, even when
+hidden, while Accessibility is not allowed.
+
 The menu also has **Fix automatically while typing (beta)**, off by default. When you finish a word with Space and it
 only makes sense on the other layout (checked with the macOS spell checker, typos allowed), it retypes that word and
 the words before it typed in the same wrong layout, then switches the layout: `рун умукщту рщц` → `hey everone how`.
