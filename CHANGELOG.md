@@ -7,6 +7,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+## 0.2.9 — 2026-11-18
+
 ### Fixes
 - A comma or semicolon typed on its own stays as typed: after clicking behind a word and typing `, you`, the comma
   turned into `б` (`consistentб you`), since that key is `б` in Ukrainian. Punctuation with no letters is never
