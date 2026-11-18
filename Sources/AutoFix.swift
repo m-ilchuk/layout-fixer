@@ -122,7 +122,9 @@ enum AutoFix {
                 let typed = buffer[word].map(\.text).joined()
                 let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
                 if readsAsShortWord(typed, language: source.language, speller: speller) { break }
-                if readsAsShortWord(fixed, language: target.language, speller: speller) { start = word.lowerBound }
+                if !isPunctuationOnly(typed) && readsAsShortWord(fixed, language: target.language, speller: speller) {
+                    start = word.lowerBound
+                }
                 continue
             }
             // Only a word that reads on the other layout goes along: a name no dictionary knows ("Jira") stays.
@@ -186,7 +188,8 @@ enum AutoFix {
         for word in run {
             let typed = buffer[word].map(\.text).joined()
             let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
-            guard !readsAsShortWord(typed, language: source.language, speller: speller),
+            guard !isPunctuationOnly(typed),
+                  !readsAsShortWord(typed, language: source.language, speller: speller),
                   readsAsShortWord(fixed, language: target.language, speller: speller)
             else { return nil }
         }
@@ -243,10 +246,27 @@ enum AutoFix {
         return core.count > 1 && speller.isValid(core, language: language)
     }
 
+    /// Typed with no letter at all (",", ";"): punctuation, not a short word on the wrong layout, though its keys
+    /// are "б" and "ж" in Ukrainian. Typed after clicking behind a word ("consistent|" then ", you"), the memory
+    /// starts at the comma, and it must stay a comma.
+    private static func isPunctuationOnly(_ typed: String) -> Bool {
+        !typed.contains(where: \.isLetter)
+    }
+
+    /// The other language knows a word close to this one: its correction is within a typo's distance, or one of
+    /// its first guesses is the same word split in two ("webhook" → "web hook", "hotfix" → "hot fix").
     private static func closeCorrection(_ word: String, language: String, speller: Speller) -> Bool {
-        guard let correction = speller.correction(for: word, language: language) else { return false }
-        let letters = word.filter(\.isLetter).count
-        return editDistance(word.lowercased(), correction.lowercased()) <= maximumTypoDistance(forLength: letters)
+        if let correction = speller.correction(for: word, language: language) {
+            let letters = word.filter(\.isLetter).count
+            if editDistance(word.lowercased(), correction.lowercased()) <= maximumTypoDistance(forLength: letters) {
+                return true
+            }
+        }
+        let core = word.lowercased().trimmingCharacters(in: wordEdgePunctuation)
+        return speller.guesses(for: word, language: language).prefix(guessesConsidered).contains { guess in
+            let joined = guess.lowercased().filter { $0 != " " && $0 != "-" }
+            return guess.contains(where: { $0 == " " || $0 == "-" }) && joined == core
+        }
     }
 
     /// The typed text may be a typo where it was typed: its correction or one of the first guesses is within a

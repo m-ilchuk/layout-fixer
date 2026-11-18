@@ -175,6 +175,12 @@ check("typo: close only on the other side converts",
 check("typo: close on both sides stays (тікет ~ пікет, nsrtn ~ nsrtf)",
       stubSkip("тікет", on: ukrainian, StubSpeller(corrections: ["nsrtn": "nsrtf"], guessLists: ["тікет": ["пікет"]])),
       "notAWordOnOtherLayout")
+// A word the English dictionary only knows split in two ("webhook" → "web hook"): it converts, whatever the Mac
+// has learned. A guess that differs by more than the split doesn't count.
+check("compound: цуирщщл → webhook (guess: web hook)",
+      stubSkip("цуирщщл", on: ukrainian, StubSpeller(guessLists: ["webhook": ["web hook"]])), "fixed")
+check("compound: цуирщщв stays (guess: web hook is not it)",
+      stubSkip("цуирщщв", on: ukrainian, StubSpeller(guessLists: ["webhood": ["web hook"]])), "notAWordOnOtherLayout")
 // How a fixed word is put in: in one step through Accessibility only in native fields; web pages get keystrokes.
 check("replace: a native text view", "\(ReplaceMethod.forField(roles: ["AXTextArea", "AXScrollArea", "AXWindow"]))",
       "accessibility")
@@ -401,6 +407,12 @@ chain("row: Я просто в шоці наскільки це круто (star
       expect: "Я просто в шоці наскільки це круто")
 chain("a real short word before a fixed one stays: I ghbdsn", startOn: english,
       [("I", english), ("привіт", ukrainian)], expect: "I привіт")
+// Clicked into text already there ("make them consistent|") and typed ", you": the memory starts at the comma, and
+// "," is the "б" key, a Ukrainian word. Punctuation on its own is punctuation, not a short word typed on the wrong layout.
+chain("clicked after a word, then , you (the comma stays)", startOn: english,
+      [(",", english), ("you", english)], expect: ", you")
+chain("clicked after a word, then ; and (the semicolon stays)", startOn: english,
+      [(";", english), ("and", english)], expect: "; and")
 chain("русский текст и English (Russian)", startOn: russianSet.english!,
       [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
       expect: "привет мир hello world", in: russianSet)
@@ -485,8 +497,6 @@ func typeSentence(_ sentence: String, _ scenario: CorpusScenario, _ condition: M
 /// when another sentence misses, and when one of these starts working (so the list stays true).
 let knownNeverSwitchMisses: [String: String] = [
     "Задеплоїв на staging, перевір, будь ласка.": "\"Задеплоїв\" is slang, not in the dictionary (from English)",
-    "Подивись логи в Datadog.": "\"Datadog\" is a name",
-    "Помилка в production, треба hotfix.": "\"hotfix\" isn't in the English dictionary",
     "Налаштуй CI для нового репозиторію.": "\"CI\" is an acronym",
     "У Jira створив тікет для API.": "\"Jira\" is a name (from Ukrainian); \"тікет\" isn't in the dictionary (from English)",
 ]

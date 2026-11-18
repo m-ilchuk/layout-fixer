@@ -7,6 +7,13 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Fixes
+- A comma or semicolon typed on its own stays as typed: after clicking behind a word and typing `, you`, the comma
+  turned into `б` (`consistentб you`), since that key is `б` in Ukrainian. Punctuation with no letters is never
+  read as a short word on the wrong layout.
+- A word the English dictionary knows only as two words converts too: `цуирщщл` → `webhook` (macOS suggests
+  `web hook`), and so do `hotfix` and `Datadog`.
+
 ## 0.2.8 — 2026-11-17
 
 ### Fixes
