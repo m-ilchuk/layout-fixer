@@ -46,10 +46,31 @@ final class Fixer {
     }
     var layouts: LayoutSet { session.layouts }
     var currentLayoutID: String? { session.currentLayoutID }
+    /// Words changed per day (the window's Statistics): counts only, never text.
+    private(set) var statistics = Statistics.load(from: .standard, now: Date())
 
     init() {
         session.autoFix = UserDefaults.standard.bool(forKey: "autoFix")
         session.onLocalLayoutUsed = { UserDefaults.standard.set($0, forKey: "preferredLocal") }
+        session.onEvent = { [unowned self] event in
+            switch event {
+            case .autoFixed(let words): self.count(.autoFixed, words: words)
+            case .converted(let words): self.count(.converted, words: words)
+            case .undone(let typed, _): self.count(.undone, words: typed.count)
+            }
+        }
+        // Counting starts at the first launch of a version that counts, not at each launch.
+        if UserDefaults.standard.data(forKey: Statistics.defaultsKey) == nil { statistics.save(to: .standard) }
+    }
+
+    func resetStatistics() {
+        statistics.reset(now: Date())
+        statistics.save(to: .standard)
+    }
+
+    private func count(_ kind: Statistics.Kind, words: Int) {
+        statistics.record(kind, words: words, at: Date())
+        statistics.save(to: .standard)
     }
 
     func reloadLayouts() {
@@ -112,12 +133,17 @@ final class Fixer {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let command = flags.contains(.maskCommand) || flags.contains(.maskControl)
-        if command || KeyCode.resetting.contains(keyCode) {
-            reset(command ? "a ⌘ or ⌃ shortcut" : "Return, Tab, Esc or an arrow key")
+        if command {
+            session.shortcut(KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags)),
+                             command: flags.contains(.maskCommand), control: flags.contains(.maskControl))
+            return true
+        }
+        if KeyCode.resetting.contains(keyCode) {
+            reset("Return, Tab, Esc or an arrow key")
             return true
         }
         if keyCode == KeyCode.delete {
-            if flags.contains(.maskAlternate) { reset("⌥⌫") } else { session.deleteBackward() }
+            if flags.contains(.maskAlternate) { session.deleteWordBackward() } else { session.deleteBackward() }
             return true
         }
         let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
@@ -199,7 +225,7 @@ final class Fixer {
         let saved = Clipboard.save(pasteboard)
         let replace: (String?) -> Void = { [weak self] text in
             guard let self else { return }
-            guard let text, let (converted, target) = self.conversion(of: text) else {
+            guard let text, let (converted, target, restores) = self.conversion(of: text) else {
                 log.notice("nothing to convert (copied: \(text?.count ?? -1) chars)")
                 Clipboard.restore(saved, to: pasteboard)
                 self.convertingSelection = false
@@ -207,6 +233,7 @@ final class Fixer {
                 return
             }
             let source = self.layouts.other(than: target.id)
+            if !restores { self.count(.converted, words: converted.split(whereSeparator: \.isWhitespace).count) }
             self.lastConversion.remember(original: text, output: converted, originalLayoutID: source?.id)
             pasteboard.clearContents()
             pasteboard.setString(converted, forType: .string)
@@ -228,12 +255,13 @@ final class Fixer {
         Clipboard.waitForChange(pasteboard, from: before, then: replace)
     }
 
-    /// The text on the other layout. Tapping again on what the last tap produced puts back exactly what was there.
-    private func conversion(of text: String) -> (text: String, target: KeyLayout)? {
+    /// The text on the other layout. Tapping again on what the last tap produced puts back exactly what was there
+    /// (`restores`: not counted as a conversion).
+    private func conversion(of text: String) -> (text: String, target: KeyLayout, restores: Bool)? {
         if let back = lastConversion.undo(of: text), let id = back.layoutID, let layout = layouts.layout(id: id) {
-            return (back.text, layout)
+            return (back.text, layout, true)
         }
-        return Converter.convert(text: text, layouts: layouts, currentID: currentLayoutID)
+        return Converter.convert(text: text, layouts: layouts, currentID: currentLayoutID).map { ($0.text, $0.target, false) }
     }
 }
 
@@ -486,7 +514,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updater = Updater()
     private lazy var settingsWindow = SettingsWindow(settings: settings, status: { [unowned self] in self.status() },
                                                      update: { [unowned self] in self.updateFromWindow() },
-                                                     exportLog: { [unowned self] in self.exportDebugLog() })
+                                                     exportLog: { [unowned self] in self.exportDebugLog() },
+                                                     statistics: { fixer.statistics.summary(now: Date()) },
+                                                     resetStatistics: { fixer.resetStatistics() })
 
     /// Every on/off setting, in the order the window shows them (the quick menu has only Enabled).
     private lazy var settings: [Setting] = [
@@ -543,8 +573,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--settings-snapshot file.png --progress 0.42`: draw the window as it looks while an update installs.
     var snapshotProgress: UpdateProgress.State?
 
+    /// `--page statistics`: draw that page instead of General.
+    var snapshotPage = 0
+
     func settingsSnapshot(to url: URL) throws {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        settingsWindow.select(page: snapshotPage)
         try settingsWindow.snapshot(to: url)
     }
 
@@ -779,6 +813,10 @@ if let flag = CommandLine.arguments.firstIndex(of: "--settings-snapshot"), flag 
     if let index = CommandLine.arguments.firstIndex(of: "--progress"), index + 1 < CommandLine.arguments.count,
        let fraction = Double(CommandLine.arguments[index + 1]) {
         delegate.snapshotProgress = UpdateProgress.State(fraction: fraction, step: "Compiling for Apple silicon and Intel…")
+    }
+    if let index = CommandLine.arguments.firstIndex(of: "--page"), index + 1 < CommandLine.arguments.count,
+       CommandLine.arguments[index + 1] == "statistics" {
+        delegate.snapshotPage = 1
     }
     do { try delegate.settingsSnapshot(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) } catch {
         print("could not write the snapshot: \(error.localizedDescription)")

@@ -7,6 +7,14 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### New
+- **Statistics** in the window (General | Statistics at the top): words fixed while typing, converted with right ⌥,
+  and automatic fixes you undid right after, for today, the last 7 days and since you started, plus how many of the
+  automatic fixes you kept. Only counts are kept, never what you type. **Reset Statistics…** starts over.
+- Undoing an automatic fix is understood: right ⌥ on the word just fixed, ⌘Z, or erasing it (⌫ or ⌥⌫) and typing
+  the same keys again on the layout you meant. The word then stays as you typed it, and the next fix in the same
+  line no longer takes it along.
+
 ## 0.2.9 — 2026-11-18
 
 ### Fixes

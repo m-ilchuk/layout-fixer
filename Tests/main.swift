@@ -312,6 +312,18 @@ final class SimulatedMac {
     final class Clock { var now = Date(timeIntervalSince1970: 0) }
     let clock = Clock()
     static let secondsPerKey: TimeInterval = 0.1
+    /// Finding ⌥⌫ and the layout switch after it takes a person about a second.
+    static let personSwitchSeconds: TimeInterval = 1
+
+    func pressKey(_ stroke: KeyStroke) { press(stroke) }
+
+    /// After the app switched the layout itself, the way `press` does after an edit.
+    func appSwitchedTo(_ target: KeyLayout) {
+        reported = actual
+        beforeAppSwitch = actual
+        actual = target
+        lagLeft = reportLag
+    }
 
     private func press(_ stroke: KeyStroke) {
         clock.now = clock.now.addingTimeInterval(SimulatedMac.secondsPerKey)
@@ -332,6 +344,58 @@ final class SimulatedMac {
         actual = edit.target
         lagLeft = reportLag
     }
+}
+
+// The person's other keys after a fix, and what the session reports to count.
+extension SimulatedMac {
+    /// Right ⌥ with nothing selected: the last word goes to the other layout.
+    func tapRightOption() {
+        guard let edit = session.convertLastWord() else { return }
+        screen.removeLast(edit.erase)
+        screen += edit.text
+        appSwitchedTo(edit.target)
+    }
+
+    func backspace(_ count: Int = 1) {
+        for _ in 0..<count {
+            clock.now = clock.now.addingTimeInterval(SimulatedMac.secondsPerKey)
+            if !screen.isEmpty { screen.removeLast() }
+            session.deleteBackward()
+        }
+    }
+
+    /// ⌥⌫: the word before the cursor and the spaces after it.
+    func optionBackspace() {
+        clock.now = clock.now.addingTimeInterval(SimulatedMac.personSwitchSeconds)
+        while screen.last == " " { screen.removeLast() }
+        while let last = screen.last, last != " " { screen.removeLast() }
+        session.deleteWordBackward()
+    }
+
+    /// ⌘Z (or another shortcut with `shift`): the app undoes its last edit, here the screen as it was before.
+    func commandZ(shift: Bool = false, before: String) {
+        if !shift { screen = before }
+        session.shortcut(KeyStroke(keyCode: TypingSession.undoKeyCode, modifiers: shift ? KeyStroke.shift : 0),
+                         command: true, control: false)
+    }
+
+    /// The keys of `word` on `meant`, without the Space.
+    func typeKeys(_ word: String, meant: KeyLayout) {
+        for char in word { pressKey(meant.strokeForCharacter[char]!) }
+    }
+}
+
+/// What a chain's session reported, in order: "fixed 3", "converted 1", "undone csv".
+func eventLog(_ mac: SimulatedMac) -> () -> String {
+    var events: [String] = []
+    mac.session.onEvent = { event in
+        switch event {
+        case .autoFixed(let words): events.append("fixed \(words)")
+        case .converted(let words): events.append("converted \(words)")
+        case .undone(let typed, _): events.append("undone \(typed.joined(separator: " "))")
+        }
+    }
+    return { events.joined(separator: ", ") }
 }
 
 /// Every chain runs five ways: no lag; macOS reporting the old layout for 3 keys after a switch; that lag with no
@@ -416,6 +480,69 @@ chain("clicked after a word, then ; and (the semicolon stays)", startOn: english
 chain("русский текст и English (Russian)", startOn: russianSet.english!,
       [("привет", russianSet.local!), ("мир", russianSet.local!), ("hello", russianSet.english!), ("world", russianSet.english!)],
       expect: "привет мир hello world", in: russianSet)
+
+// Undo right after a fix: counted, and the word stays as typed from then on.
+func undoChain(_ name: String, startOn: KeyLayout = english, conditions: [MacCondition] = chainConditions,
+               _ steps: (SimulatedMac) -> Void, screen want: String, events wantEvents: String) {
+    for condition in conditions {
+        let mac = condition.mac(ukrainianSet, startOn: startOn)
+        let events = eventLog(mac)
+        steps(mac)
+        check("undo, \(condition.name): \(name)", "\(mac.screen)| \(events())", "\(want)| \(wantEvents)")
+    }
+}
+undoChain("a fix counts its words", { $0.type([("привіт", ukrainian)]) }, screen: "привіт ", events: "fixed 1")
+undoChain("right ⌥ right after a fix undoes it", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.tapRightOption()
+}, screen: "ghbdsn ", events: "fixed 1, undone ghbdsn")
+undoChain("right ⌥ twice: back to the fix, counted once", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.tapRightOption()
+    mac.tapRightOption()
+}, screen: "привіт ", events: "fixed 1, undone ghbdsn")
+undoChain("an undone word isn't taken along by the next fix", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.tapRightOption()
+    mac.type([("світ", ukrainian)])
+}, screen: "ghbdsn світ ", events: "fixed 1, undone ghbdsn, fixed 1")
+undoChain("right ⌥ after typing on: a conversion, not an undo", { mac in
+    mac.type([("привіт", ukrainian), ("світ", ukrainian)])
+    mac.tapRightOption()
+}, screen: "привіт cdsn ", events: "fixed 1, converted 1")
+// The short words aren't fixed when macOS reports your own switch late (a limit of the short-word rule).
+undoChain("right ⌥ after the short words were fixed: a conversion", startOn: ukrainian,
+          conditions: chainConditions.filter { !$0.lateAfterOwnSwitch }, { mac in
+    mac.type([("I", english), ("am", english)])
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("just", english)])
+    mac.tapRightOption()
+}, screen: "I am огіе ", events: "fixed 2, converted 1")
+undoChain("⌘Z right after a fix undoes it", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.commandZ(before: "ghbdsn ")
+}, screen: "ghbdsn ", events: "fixed 1, undone ghbdsn")
+undoChain("⌘⇧Z isn't an undo", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.commandZ(shift: true, before: "ghbdsn ")
+}, screen: "привіт ", events: "fixed 1")
+undoChain("⌫ over the fix, then the same keys again on English: it stays", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.backspace(7)
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("ghbdsn", english)])
+}, screen: "ghbdsn ", events: "fixed 1, undone ghbdsn")
+undoChain("⌥⌫ over the fix, then the same keys again: it stays", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.optionBackspace()
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("ghbdsn", english)])
+}, screen: "ghbdsn ", events: "fixed 1, undone ghbdsn")
+undoChain("⌫ over the fix, then another word: no undo", { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.backspace(7)
+    mac.type([("світ", ukrainian)])
+}, screen: "світ ", events: "fixed 1")
 
 // Switching yourself, macOS late to tell, then a word on the wrong layout: it's recorded half on each layout.
 for condition in chainConditions {
@@ -589,6 +716,50 @@ check("version ignores a pre-release suffix", Version("1.5.0-beta.1")?.descripti
 check("version rejects junk", Version("latest")?.description, "nil")
 check("1.10.0 is newer than 1.9.3", String(Version("1.10.0")! > Version("1.9.3")!), "true")
 check("1.0.0 is not newer than 1.0.0", String(Version("v1.0.0")! > Version("1.0.0")!), "false")
+
+// MARK: Statistics: counts per day on the Mac's calendar, never text.
+var kyiv = Calendar(identifier: .gregorian)
+kyiv.timeZone = TimeZone(identifier: "Europe/Kyiv")!
+func kyivDate(_ text: String) -> Date {  // "2026-11-20 23:59"
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = kyiv.timeZone
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    return formatter.date(from: text)!
+}
+func counts(_ c: Statistics.Counts) -> String { "\(c.autoFixed)/\(c.converted)/\(c.undone)" }
+var stats = Statistics(since: kyivDate("2026-11-10 09:00"))
+stats.record(.autoFixed, words: 3, at: kyivDate("2026-11-20 23:59"), calendar: kyiv)
+stats.record(.autoFixed, words: 2, at: kyivDate("2026-11-21 00:01"), calendar: kyiv)
+stats.record(.converted, words: 1, at: kyivDate("2026-11-21 08:00"), calendar: kyiv)
+stats.record(.undone, words: 1, at: kyivDate("2026-11-21 08:00"), calendar: kyiv)
+stats.record(.autoFixed, words: 4, at: kyivDate("2026-11-14 12:00"), calendar: kyiv)  // 7 days before the 21st
+stats.record(.autoFixed, words: 5, at: kyivDate("2026-11-15 12:00"), calendar: kyiv)  // 6 days before
+stats.record(.converted, words: 0, at: kyivDate("2026-11-21 08:00"), calendar: kyiv)
+let summary = stats.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv)
+check("stats: today starts at midnight", counts(summary.today), "2/1/1")
+check("stats: 7 days are today and the 6 before", counts(summary.lastSevenDays), "10/1/1")
+check("stats: all time", counts(summary.allTime), "14/1/1")
+check("stats: kept rate", summary.lastSevenDays.keptRate.map { String(format: "%.2f", $0) }, "0.90")
+check("stats: no kept rate before a fix", Statistics.Counts().keptRate.map { "\($0)" }, "nil")
+let statsDefaults = UserDefaults(suiteName: "layout-fixer-tests-\(ProcessInfo.processInfo.processIdentifier)")!
+stats.save(to: statsDefaults)
+check("stats: saved and loaded back", String(Statistics.load(from: statsDefaults, now: Date()) == stats), "true")
+statsDefaults.set(Data("{ not json".utf8), forKey: Statistics.defaultsKey)
+let fresh = Statistics.load(from: statsDefaults, now: kyivDate("2026-11-21 10:00"))
+check("stats: unreadable ones start fresh and are kept aside",
+      "\(counts(fresh.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).allTime)) "
+        + "\(statsDefaults.data(forKey: Statistics.defaultsKey + ".unreadable") != nil)", "0/0/0 true")
+statsDefaults.set(Data(#"{"since":0,"days":{"2026-11-21":{"autoFixed":2}}}"#.utf8), forKey: Statistics.defaultsKey)
+check("stats: a counter missing from what an older version saved reads as 0",
+      counts(Statistics.load(from: statsDefaults, now: Date()).summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).today),
+      "2/0/0")
+statsDefaults.removePersistentDomain(forName: "layout-fixer-tests-\(ProcessInfo.processInfo.processIdentifier)")
+var cleared = stats
+cleared.reset(now: kyivDate("2026-11-21 10:00"))
+check("stats: reset clears and counts from now",
+      "\(counts(cleared.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).allTime)) \(cleared.since == kyivDate("2026-11-21 10:00"))",
+      "0/0/0 true")
 
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

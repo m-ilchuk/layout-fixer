@@ -42,13 +42,28 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private var refreshTimer: Timer?
 
     private let exportAction: () -> Void
+    private let statistics: () -> Statistics.Summary
+    private let resetStatisticsAction: () -> Void
+
+    /// The pages, picked at the top: General (settings, the README picture) and Statistics.
+    private let pagePicker = NSSegmentedControl(labels: ["General", "Statistics"], trackingMode: .selectOne,
+                                                target: nil, action: nil)
+    private let generalPage = NSStackView()
+    private let statisticsPage = NSStackView()
+    /// Rows: fixed while typing, converted with right ⌥, undone; columns: today, 7 days, all time.
+    private var statisticsCells: [[NSTextField]] = []
+    private let keptLabel = NSTextField(labelWithString: "")
+    private let sinceLabel = NSTextField(labelWithString: "")
 
     init(settings: [Setting], status: @escaping () -> SettingsStatus, update: @escaping () -> Void,
-         exportLog: @escaping () -> Void) {
+         exportLog: @escaping () -> Void, statistics: @escaping () -> Statistics.Summary,
+         resetStatistics: @escaping () -> Void) {
         self.settings = settings
         self.status = status
         self.updateAction = update
         self.exportAction = exportLog
+        self.statistics = statistics
+        self.resetStatisticsAction = resetStatistics
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsWindow.width, height: 100),
                           styleMask: [.titled, .closable], backing: .buffered, defer: true)
         super.init()
@@ -86,6 +101,23 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             progressLabel.stringValue = "\(progress.step) \(progress.percent)%"
         }
         for (checkbox, setting) in zip(checkboxes, settings) { checkbox.state = setting.isOn() ? .on : .off }
+        if !statisticsPage.isHidden { refreshStatistics() }
+    }
+
+    private func refreshStatistics() {
+        let summary = statistics()
+        let periods = [summary.today, summary.lastSevenDays, summary.allTime]
+        let rows: [(Statistics.Counts) -> Int] = [{ $0.autoFixed }, { $0.converted }, { $0.undone }]
+        for (cells, value) in zip(statisticsCells, rows) {
+            for (cell, counts) in zip(cells, periods) { cell.stringValue = value(counts).formatted() }
+        }
+        if let kept = summary.lastSevenDays.keptRate {
+            keptLabel.stringValue = "Kept \(Int((kept * 100).rounded()))% of the automatic fixes in the last 7 days."
+        } else {
+            keptLabel.stringValue = "No automatic fixes in the last 7 days."
+        }
+        sinceLabel.stringValue = "Counting since \(summary.since.formatted(date: .long, time: .omitted)). "
+            + "Only counts are kept, never what you type."
     }
 
     /// Render the window's content to a PNG without showing it (`LayoutFixer --settings-snapshot file.png`).
@@ -187,25 +219,64 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         progressRow.spacing = 10
         progressRow.isHidden = true
 
-        let stack = NSStackView(views: [heading,
-                                        accessLabel, accessHelp, accessButton,
-                                        separator(),
-                                        usage, pairLabel,
-                                        separator()]
-                                       + checkboxes
-                                       + [separator(), notch, row([updateButton, export, quit]), progressRow])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        for view in [accessLabel, accessHelp, accessButton, separator(), usage, pairLabel, separator()]
+            + checkboxes + [separator(), notch, row([updateButton, export, quit]), progressRow] {
+            generalPage.addArrangedSubview(view)
+        }
+        for page in [generalPage, statisticsPage] {
+            page.orientation = .vertical
+            page.alignment = .leading
+            page.spacing = 10
+        }
         for view in [accessHelp, usage, notch] {
             view.preferredMaxLayoutWidth = SettingsWindow.width - 40
         }
-        stack.setCustomSpacing(4, after: accessLabel)
-        stack.setCustomSpacing(4, after: usage)
+        generalPage.setCustomSpacing(4, after: accessLabel)
+        generalPage.setCustomSpacing(4, after: usage)
+        makeStatisticsPage()
+        statisticsPage.isHidden = true
+
+        pagePicker.selectedSegment = 0
+        pagePicker.target = self
+        pagePicker.action = #selector(pickPage)
+        let stack = NSStackView(views: [heading, pagePicker, generalPage, statisticsPage])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.widthAnchor.constraint(equalToConstant: SettingsWindow.width).isActive = true
         return stack
+    }
+
+    private func makeStatisticsPage() {
+        let headers = ["", "Today", "7 days", "All time"].map { title -> NSTextField in
+            let label = NSTextField(labelWithString: title)
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            return label
+        }
+        let titles = ["Fixed while typing", "Converted with right ⌥", "Undone right after a fix"]
+        statisticsCells = titles.map { _ in
+            (0..<3).map { _ in
+                let cell = NSTextField(labelWithString: "0")
+                cell.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+                return cell
+            }
+        }
+        let grid = NSGridView(views: [headers] + zip(titles, statisticsCells).map { [NSTextField(labelWithString: $0)] + $1 })
+        grid.rowSpacing = 8
+        grid.columnSpacing = 22
+        for column in 1..<4 { grid.column(at: column).xPlacement = .trailing }
+        keptLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        sinceLabel.textColor = .secondaryLabelColor
+        sinceLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        sinceLabel.lineBreakMode = .byWordWrapping
+        sinceLabel.maximumNumberOfLines = 0
+        sinceLabel.preferredMaxLayoutWidth = SettingsWindow.width - 40
+        let reset = NSButton(title: "Reset Statistics…", target: self, action: #selector(resetStatistics))
+        reset.bezelStyle = .rounded
+        for view in [grid, separator(), keptLabel, sinceLabel, reset] { statisticsPage.addArrangedSubview(view) }
     }
 
     private func row(_ views: [NSView]) -> NSStackView {
@@ -227,6 +298,30 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     @objc private func toggle(_ sender: NSButton) {
         settings[sender.tag].set(sender.state == .on)
+        refresh()
+    }
+
+    /// 0 General, 1 Statistics.
+    func select(page: Int) {
+        pagePicker.selectedSegment = page
+        pickPage()
+    }
+
+    @objc private func pickPage() {
+        generalPage.isHidden = pagePicker.selectedSegment != 0
+        statisticsPage.isHidden = pagePicker.selectedSegment != 1
+        refresh()
+    }
+
+    @objc private func resetStatistics() {
+        let alert = NSAlert()
+        alert.messageText = "Reset statistics?"
+        alert.informativeText = "All counts go back to 0 and counting starts again from now. This can't be undone."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        resetStatisticsAction()
         refresh()
     }
 

@@ -14,7 +14,18 @@ final class TypingSession {
         var switches = true
     }
 
+    /// What the session tells the app to count (statistics) and, for an undone fix, learn from.
+    enum Event: Equatable {
+        /// Words fixed while typing.
+        case autoFixed(words: Int)
+        /// Words converted with right ⌥ (the last word; the app counts selections itself).
+        case converted(words: Int)
+        /// An automatic fix undone right after it: `typed` is each undone word as it was typed, on `layoutID`.
+        case undone(typed: [String], layoutID: String)
+    }
+
     static let maxRemembered = 300
+    static let undoKeyCode: UInt16 = 6  // Z
     /// Right after the app switches the layout itself, macOS can still report the old one for a moment.
     static let switchGraceSeconds: TimeInterval = 1
     /// How far back keys are re-read when macOS reports a switch it didn't announce: about how late its report
@@ -31,6 +42,8 @@ final class TypingSession {
     private(set) var lastClear = "starting up"
     /// Called with a local layout (not English) whenever it becomes the one in use: English flips to it from then on.
     var onLocalLayoutUsed: ((String) -> Void)?
+    /// Called for each fix, conversion and undo.
+    var onEvent: ((Event) -> Void)?
 
     private var switchedAt: Date?
     private var switchedFrom: String?
@@ -70,10 +83,37 @@ final class TypingSession {
     func reset(_ reason: String) {
         buffer.removeAll()
         lastClear = reason
+        lastChange = nil
+        erasedFix = nil
+        keepBefore = 0
     }
 
+    /// ⌫. Erasing the whole word just fixed starts an undo: typed again with the same keys as before, it stays.
     func deleteBackward() {
         if !buffer.isEmpty { buffer.removeLast() }
+        keepBefore = min(keepBefore, buffer.count)
+        noteErasedFix()
+    }
+
+    /// ⌥⌫ right after a fix: the fixed word (and the space after it) is erased; anything else clears the memory.
+    func deleteWordBackward() {
+        guard let change = lastChange, change.automatic, let word = change.words.last,
+              buffer.count <= word.upperBound + 1, buffer.count > word.lowerBound
+        else { return reset("⌥⌫") }
+        buffer.removeSubrange(word.lowerBound...)
+        keepBefore = min(keepBefore, buffer.count)
+        noteErasedFix()
+    }
+
+    /// ⌘Z right after a fix undoes it in the app. Any other ⌘ or ⌃ shortcut only clears the memory.
+    func shortcut(_ stroke: KeyStroke, command: Bool, control: Bool) {
+        let plainCommandZ = command && !control && stroke.keyCode == TypingSession.undoKeyCode
+            && stroke.modifiers & (KeyStroke.shift | KeyStroke.option) == 0
+        if plainCommandZ, let change = lastChange, change.automatic {
+            log("auto-fix undone with ⌘Z (\(change.words.count) words)")
+            onEvent?(.undone(typed: change.typed, layoutID: change.sourceID))
+        }
+        reset("a ⌘ or ⌃ shortcut")
     }
 
     var hasTypedWord: Bool { buffer.contains { !$0.isSpace } }
@@ -98,31 +138,110 @@ final class TypingSession {
             log("key event text is from another layout than \(layout.id) (ignored)")
         }
         if text == " " { loggedEventMismatch = false }
+        lastChange = nil
         if text == " " && autoFix {
             if settleLastWord(screenBeforeCursor) {
-                if let edit = fixWordBeforeSpace() { return edit }
+                if retypedErasedFix() {
+                    keepBefore = buffer.count + 1
+                } else if let edit = fixWordBeforeSpace() {
+                    erasedFix = nil
+                    return edit
+                }
             } else {
                 reset("the app changing the text")
             }
         }
+        if text == " " { erasedFix = nil }
         buffer.append(Typed(stroke: stroke, layoutID: layout.id, text: text, at: now()))
-        if buffer.count > TypingSession.maxRemembered { buffer.removeFirst(buffer.count - TypingSession.maxRemembered) }
+        if buffer.count > TypingSession.maxRemembered {
+            let extra = buffer.count - TypingSession.maxRemembered
+            buffer.removeFirst(extra)
+            keepBefore = max(0, keepBefore - extra)
+            erasedFix = nil
+        }
         return nil
     }
 
     /// Right ⌥ with nothing selected: the last word typed, on the other layout (tap again to flip it back).
+    /// Right after an automatic fix it undoes the last word fixed; right after a tap it flips the word back
+    /// (counted once). Either way that word is the person's choice from then on: later fixes don't take it along.
     func convertLastWord() -> Edit? {
         guard let range = Converter.lastWord(of: buffer),
               let typedOn = buffer[range].last(where: { !$0.isSpace })?.layoutID,
               let source = layouts.layout(id: typedOn), let target = layouts.other(than: typedOn)
         else { return nil }
+        let word = range.lowerBound..<(buffer[range].lastIndex(where: { !$0.isSpace }).map { $0 + 1 } ?? range.upperBound)
+        let typed = buffer[word].map(\.text).joined()
+        if let change = lastChange, change.words.last == word {
+            if change.automatic {
+                log("auto-fix undone with right ⌥")
+                onEvent?(.undone(typed: [change.typed.last ?? ""], layoutID: change.sourceID))
+            }
+        } else {
+            onEvent?(.converted(words: 1))
+        }
         let fixed = Converter.retype(buffer[range], on: target)
         buffer.replaceSubrange(range, with: fixed)
         appSwitched(to: target.id)
+        lastChange = Change(automatic: false, words: [word], typed: [typed], strokes: [], sourceID: source.id)
+        keepBefore = max(keepBefore, buffer.count)
         return Edit(erase: range.count, text: fixed.map(\.text).joined(), source: source, target: target)
     }
 
     // MARK: Private
+
+    /// The last fix or right ⌥ conversion, until the next key that types: what an undo would undo.
+    private struct Change {
+        let automatic: Bool
+        /// The changed words, as ranges of `buffer`.
+        let words: [Range<Int>]
+        /// Each changed word as it was before the change.
+        let typed: [String]
+        /// The keys of the last changed word (automatic fixes only).
+        let strokes: [KeyStroke]
+        let sourceID: String
+    }
+    private var lastChange: Change?
+    /// The last fixed word was erased with ⌫ or ⌥⌫: typed again with the same keys on its own layout, it's an undo.
+    private var erasedFix: (strokes: [KeyStroke], typed: String, sourceID: String)?
+    /// Fixes never reach back before this index: the words there were undone or converted by the person.
+    private var keepBefore = 0
+
+    private func noteErasedFix() {
+        guard let change = lastChange, change.automatic, let word = change.words.last, buffer.count <= word.lowerBound
+        else { return }
+        erasedFix = (change.strokes, change.typed.last ?? "", change.sourceID)
+        lastChange = nil
+    }
+
+    /// The word before this Space is the erased fixed word typed again as it was: an undo, and it stays.
+    private func retypedErasedFix() -> Bool {
+        guard let erased = erasedFix, let range = AutoFix.wordRanges(in: buffer).last, range.upperBound == buffer.count
+        else { return false }
+        let word = buffer[range]
+        guard word.map(\.stroke) == erased.strokes, word.allSatisfy({ $0.layoutID == erased.sourceID }) else { return false }
+        log("auto-fix undone: the fixed word was erased and typed again as before")
+        onEvent?(.undone(typed: [erased.typed], layoutID: erased.sourceID))
+        erasedFix = nil
+        return true
+    }
+
+    /// The fix's range without the words before `keepBefore`; nil when nothing is left.
+    private func keepingChoices(_ range: Range<Int>) -> Range<Int>? {
+        guard range.lowerBound < keepBefore else { return range }
+        guard let first = AutoFix.wordRanges(in: buffer).first(where: {
+            $0.lowerBound >= keepBefore && $0.lowerBound >= range.lowerBound && $0.upperBound <= range.upperBound
+        }) else { return nil }
+        return first.lowerBound..<range.upperBound
+    }
+
+    private func recordFix(_ range: Range<Int>, source: KeyLayout?) {
+        let words = AutoFix.wordRanges(in: Array(buffer[range])).map { ($0.lowerBound + range.lowerBound)..<($0.upperBound + range.lowerBound) }
+        let typed = words.map { buffer[$0].map(\.text).joined() }
+        lastChange = Change(automatic: true, words: words, typed: typed,
+                            strokes: words.last.map { buffer[$0].map(\.stroke) } ?? [], sourceID: source?.id ?? "")
+        onEvent?(.autoFixed(words: words.count))
+    }
 
     /// Logged once per word, so a stale key event shows in the log without filling it.
     private var loggedEventMismatch = false
@@ -188,12 +307,17 @@ final class TypingSession {
     /// Fix-while-typing: on Space, the word just finished (and the words before it on the same wrong layout).
     private func fixWordBeforeSpace() -> Edit? {
         let decision = AutoFix.decide(buffer: buffer, layouts: layouts, speller: speller)
-        if case .fixShortWords(let range, let target) = decision { return fixShortWords(range, on: target) }
-        guard case .fix(let range, let target) = decision else {
+        if case .fixShortWords(let found, let target) = decision {
+            guard let range = keepingChoices(found) else { return nil }
+            return fixShortWords(range, on: target)
+        }
+        guard case .fix(let found, let target) = decision else {
             if case .skip(let reason) = decision { logSkip(reason) }
             return nil
         }
+        guard let range = keepingChoices(found) else { return nil }
         let source = buffer.last.flatMap { layouts.layout(id: $0.layoutID) }
+        recordFix(range, source: source)
         let fixed = Converter.retype(buffer[range], on: target)
         log("auto-fix: \(AutoFix.wordRanges(in: Array(buffer[range])).count) words")
         buffer.replaceSubrange(range, with: fixed)
@@ -210,6 +334,7 @@ final class TypingSession {
         let tail = buffer[range.upperBound...]
         let erase = buffer.count - range.lowerBound
         log("auto-fix: \(AutoFix.wordRanges(in: Array(buffer[range])).count) short words before the last one")
+        recordFix(range, source: source)
         buffer.replaceSubrange(range, with: fixed)
         buffer.append(Typed(stroke: TypingSession.spaceKey, layoutID: current.id, text: " "))
         let text = fixed.map(\.text).joined() + tail.map(\.text).joined() + " "
