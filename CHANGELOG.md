@@ -7,6 +7,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+## 0.3.0 — 2026-11-21
+
 ### New
 - **Statistics** in the window (General | Statistics at the top): words fixed while typing, converted with right ⌥,
   and automatic fixes you undid right after, for today, the last 7 days and since you started, plus how many of the
