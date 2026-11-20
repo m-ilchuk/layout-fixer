@@ -893,6 +893,24 @@ check("stats: reset clears and counts from now",
       "\(counts(cleared.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).allTime)) \(cleared.since == kyivDate("2026-11-21 10:00"))",
       "0/0/0 true")
 
+// Keys pressed while a fix is typed wait, then go in order; one that starts another fix makes the rest wait again.
+let heldKeys = HeldKeys<String>()
+var handled: [String] = []
+check("held: nothing held when no fix is typed", String(heldKeys.hold("a")), "false")
+heldKeys.begin()
+for key in ["c", "d", "space", "x"] { _ = heldKeys.hold(key) }
+heldKeys.end { key in
+    handled.append(key)
+    if key == "space" { heldKeys.begin() }  // the Space finished a word to fix
+}
+check("held: handed over in order, up to the next fix", "\(handled.joined(separator: " ")) | \(heldKeys.count)", "c d space | 1")
+_ = heldKeys.hold("y")
+heldKeys.end { handled.append($0) }
+check("held: the rest after that fix", handled.joined(separator: " "), "c d space x y")
+heldKeys.begin()
+for n in 0..<(HeldKeys<String>.limit + 3) { _ = heldKeys.hold("k\(n)") }
+check("held: past the limit keys go through", "\(heldKeys.count) \(heldKeys.hold("one more"))", "\(HeldKeys<String>.limit) false")
+
 // The updater installs exactly the release it found: its installer and source at the tag, never main.
 check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", repository: "m-ilchuk/layout-fixer"),
       "curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/v0.3.0/get.sh | LAYOUT_FIXER_REF=v0.3.0 bash")

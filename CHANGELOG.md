@@ -19,6 +19,16 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
   words yourself, or remove one to let it be fixed again. Tapping right ⌥ twice (undo, then back) doesn't count.
   The words stay on this Mac, in Layout Fixer's settings; one undone fewer than 3 times is forgotten after 30 days.
 
+### Fixes
+- Typing fast right after a fix no longer mixes your next keys into it: the fix is typed away from the keyboard
+  handler, and keys you press meanwhile wait and follow it, in order. Long fixes no longer hold up typing on the
+  whole Mac.
+- When macOS pauses Layout Fixer's keyboard handler (it does when an app is slow), what it remembered is cleared, so
+  the next fix can't erase the wrong characters. An app that doesn't answer can delay a fix by at most a quarter of
+  a second, not six.
+- Updates install exactly the release they offer, from that release's own code, never newer unreleased code. When
+  GitHub can't say which release is latest, the installer stops with a message instead of building the newest code.
+
 ## 0.2.9 — 2026-11-18
 
 ### Fixes

@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
-CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift Sources/Version.swift Sources/ReleaseNotes.swift Sources/UpdateProgress.swift Sources/TypingSession.swift Sources/ReplaceMethod.swift Sources/Statistics.swift Sources/Exclusions.swift)
+CORE=(Sources/KeyLayout.swift Sources/Converter.swift Sources/AutoFix.swift Sources/Setup.swift Sources/Version.swift Sources/ReleaseNotes.swift Sources/UpdateProgress.swift Sources/TypingSession.swift Sources/ReplaceMethod.swift Sources/Statistics.swift Sources/Exclusions.swift Sources/HeldKeys.swift)
 APP_ONLY=(Sources/Flash.swift Sources/Updater.swift Sources/SettingsWindow.swift Sources/ExclusionsPage.swift Sources/ReleaseNotesView.swift Sources/DebugLog.swift Sources/main.swift)
 MIN_MACOS=13.0
 # The compiler's cache of Apple's frameworks: most of a first build (about 40 s of 45). Inside build/ by default;

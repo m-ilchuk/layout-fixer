@@ -125,6 +125,15 @@ final class Fixer {
     /// Returns false when the event must be swallowed.
     func handle(type: CGEventType, event: CGEvent) -> Bool {
         guard enabled, event.getIntegerValueField(.eventSourceUserData) != syntheticMarker else { return true }
+        // A fix is being typed: keys wait until it's done (handled then, in order), or they'd land inside it.
+        if (type == .keyDown || type == .flagsChanged), let copy = event.copy(),
+           held.hold(HeldKey(type: type, event: copy)) {
+            return false
+        }
+        return handleNow(type: type, event: event)
+    }
+
+    private func handleNow(type: CGEventType, event: CGEvent) -> Bool {
         switch type {
         case .keyDown:
             return handleKeyDown(event)
@@ -191,9 +200,62 @@ final class Fixer {
         return false  // the edit types the Space
     }
 
+    // MARK: Typing a fix, away from the key tap
+
+    /// A key pressed while a fix was being typed.
+    private struct HeldKey {
+        let type: CGEventType
+        let event: CGEvent
+    }
+    private let held = HeldKeys<HeldKey>()
+    /// Fixes are typed here, not in the key tap: a long one (keystrokes, about 8 ms a character) would hold up
+    /// every key on the Mac and could get the tap turned off.
+    private let replayQueue = DispatchQueue(label: "io.github.m-ilchuk.layoutfixer.replay", qos: .userInteractive)
+    private var replayNumber = 0
+    /// A fix that takes longer than this lets the held keys go anyway: typing must never stay blocked.
+    static let replayLimitSeconds: TimeInterval = 3
+
+    /// Runs `work` (typing into the app) away from the tap while keys are held, then `done` on the main thread,
+    /// then the held keys.
+    private func replay(_ work: @escaping () -> Void, then done: @escaping () -> Void = {}) {
+        replayNumber += 1
+        let number = replayNumber
+        held.begin()
+        replayQueue.async {
+            work()
+            DispatchQueue.main.async {
+                done()
+                self.endReplay(number)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Fixer.replayLimitSeconds) {
+            guard number == self.replayNumber, self.held.replaying else { return }
+            log.notice("a fix took over \(Fixer.replayLimitSeconds, privacy: .public) s: letting the keys pressed meanwhile through")
+            self.reset("a fix taking too long")
+            self.endReplay(number)
+        }
+    }
+
+    private func endReplay(_ number: Int) {
+        guard number == replayNumber, held.replaying else { return }
+        if held.count > 0 { log.notice("\(self.held.count) keys pressed during a fix, handled now") }
+        held.end { key in
+            // Typed now, on the layout that's on now: the person typed on after the fix, in its language.
+            guard handleNow(type: key.type, event: key.event), key.type == .keyDown else { return }
+            Typist.repost(keyCode: UInt16(key.event.getIntegerValueField(.keyboardEventKeycode)), flags: key.event.flags)
+        }
+    }
+
     /// Carry out a session edit: erase, type, switch the keyboard, flash.
     /// Through Accessibility when the app allows it (one step, nothing to drop), else as keystrokes.
     private func apply(_ edit: TypingSession.Edit) {
+        replay({ Fixer.replace(edit) }, then: {
+            if edit.switches { edit.target.select() }
+            Flash.shared.show(from: edit.source, to: edit.target)
+        })
+    }
+
+    private static func replace(_ edit: TypingSession.Edit) {
         switch Selection.replaceBeforeCursor(edit.erase, with: edit.text) {
         case .replaced:
             log.notice("replaced \(edit.erase) characters through accessibility")
@@ -205,8 +267,6 @@ final class Fixer {
             Typist.type(edit.text)
             log.notice("replaced \(edit.erase) characters with keystrokes")
         }
-        if edit.switches { edit.target.select() }
-        Flash.shared.show(from: edit.source, to: edit.target)
     }
 
     /// The text macOS put in a key event, when it put any.
@@ -274,7 +334,9 @@ final class Fixer {
             pasteboard.clearContents()
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { Selection.reselect(converted, after: selection) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                self.replay { Selection.reselect(converted, after: selection) }
+            }
             self.reset("converting a selection")
             target.select()
             self.session.appSwitched(to: target.id)
@@ -325,6 +387,13 @@ enum Typist {
         }
     }
 
+    /// A key the person pressed while a fix was typed, sent now: the key and its modifiers, so the app reads it
+    /// on the layout that's on now.
+    static func repost(keyCode: UInt16, flags: CGEventFlags) {
+        press(keyCode, flags: flags.intersection([.maskShift, .maskAlphaShift, .maskAlternate, .maskCommand, .maskControl]),
+              pause: false)
+    }
+
     static func shortcut(_ keyCode: UInt16) {
         press(keyCode, flags: .maskCommand)
     }
@@ -334,18 +403,18 @@ enum Typist {
         for _ in 0..<count { press(KeyCode.leftArrow, flags: .maskShift) }
     }
 
-    private static func press(_ keyCode: UInt16, flags: CGEventFlags) {
+    private static func press(_ keyCode: UInt16, flags: CGEventFlags, pause: Bool = true) {
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }
             event.flags = flags
-            post(event)
+            post(event, pause: pause)
         }
     }
 
-    private static func post(_ event: CGEvent) {
+    private static func post(_ event: CGEvent, pause: Bool = true) {
         event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
         event.post(tap: .cghidEventTap)
-        usleep(keyDelayMicroseconds)
+        if pause { usleep(keyDelayMicroseconds) }
     }
 }
 
