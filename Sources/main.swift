@@ -212,25 +212,31 @@ final class Fixer {
     /// every key on the Mac and could get the tap turned off.
     private let replayQueue = DispatchQueue(label: "io.github.m-ilchuk.layoutfixer.replay", qos: .userInteractive)
     private var replayNumber = 0
-    /// A fix that takes longer than this lets the held keys go anyway: typing must never stay blocked.
-    static let replayLimitSeconds: TimeInterval = 3
+    /// A fix may take this long, plus `replaySecondsPerKey` for each key it types; past that it's stopped and the
+    /// held keys go: typing must never stay blocked. Keystrokes take about 16 ms a key with the app's pauses.
+    static let replayBaseSeconds: TimeInterval = 2
+    static let replaySecondsPerKey: TimeInterval = 0.03
 
-    /// Runs `work` (typing into the app) away from the tap while keys are held, then `done` on the main thread,
-    /// then the held keys.
-    private func replay(_ work: @escaping () -> Void, then done: @escaping () -> Void = {}) {
+    /// Runs `work` (typing `keys` keys into the app) away from the tap while keys are held, then `done` on the main
+    /// thread, then the held keys.
+    private func replay(keys: Int, _ work: @escaping () -> Void, then done: @escaping () -> Void = {}) {
         replayNumber += 1
         let number = replayNumber
+        let limit = Fixer.replayBaseSeconds + Double(keys) * Fixer.replaySecondsPerKey
         held.begin()
         replayQueue.async {
+            Typist.stop.set(false)
             work()
             DispatchQueue.main.async {
                 done()
                 self.endReplay(number)
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Fixer.replayLimitSeconds) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
             guard number == self.replayNumber, self.held.replaying else { return }
-            log.notice("a fix took over \(Fixer.replayLimitSeconds, privacy: .public) s: letting the keys pressed meanwhile through")
+            // Stop typing it first, so the held keys can't land in the middle of it.
+            Typist.stop.set(true)
+            log.notice("a fix of \(keys) keys took over \(limit, privacy: .public) s: stopped it, letting the keys pressed meanwhile through")
             self.reset("a fix taking too long")
             self.endReplay(number)
         }
@@ -249,7 +255,7 @@ final class Fixer {
     /// Carry out a session edit: erase, type, switch the keyboard, flash.
     /// Through Accessibility when the app allows it (one step, nothing to drop), else as keystrokes.
     private func apply(_ edit: TypingSession.Edit) {
-        replay({ Fixer.replace(edit) }, then: {
+        replay(keys: edit.erase + edit.text.count, { Fixer.replace(edit) }, then: {
             if edit.switches { edit.target.select() }
             Flash.shared.show(from: edit.source, to: edit.target)
         })
@@ -335,7 +341,7 @@ final class Fixer {
             pasteboard.setString(converted, forType: .string)
             Typist.shortcut(KeyCode.v)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self.replay { Selection.reselect(converted, after: selection) }
+                self.replay(keys: converted.count) { Selection.reselect(converted, after: selection) }
             }
             self.reset("converting a selection")
             target.select()
@@ -363,8 +369,19 @@ final class Fixer {
     }
 }
 
+/// A yes/no shared between the main thread and the replay queue.
+final class Flag {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set(_ on: Bool) { lock.withLock { value = on } }
+}
+
 /// Posts keystrokes marked as ours.
 enum Typist {
+    /// Set when a fix ran too long: the keys not yet sent are dropped.
+    static let stop = Flag()
+
     private static let source: CGEventSource? = {
         let source = CGEventSource(stateID: .privateState)
         source?.userData = syntheticMarker
@@ -412,6 +429,7 @@ enum Typist {
     }
 
     private static func post(_ event: CGEvent, pause: Bool = true) {
+        guard pause == false || !stop.isSet else { return }
         event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
         event.post(tap: .cghidEventTap)
         if pause { usleep(keyDelayMicroseconds) }
