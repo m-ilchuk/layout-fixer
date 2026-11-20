@@ -6,6 +6,9 @@
 # block), installs "~/Applications/Layout Fixer.app" and starts it. Reads nothing from stdin, so it is safe to pipe.
 set -euo pipefail
 
+# Everything is in main, run on the last line: a download cut short runs nothing, not part of the script.
+main() {
+
 REPO="m-ilchuk/layout-fixer"
 REF="${LAYOUT_FIXER_REF:-latest}"
 MIN_MACOS_MAJOR=13
@@ -38,7 +41,9 @@ else
     REF="$TAG"
   fi
   [[ "$REF" =~ ^[A-Za-z0-9._-]+$ ]] || fail "LAYOUT_FIXER_REF must be a release tag or branch name, not \"$REF\"."
-  SOURCE_URL="https://github.com/$REPO/archive/$REF.tar.gz"
+  # A release tag ("v0.3.0") is read as a tag only, so a branch of the same name can't stand in for it.
+  if [[ "$REF" =~ ^v[0-9] ]]; then KIND=tags; else KIND=heads; fi
+  SOURCE_URL="https://github.com/$REPO/archive/refs/$KIND/$REF.tar.gz"
   echo "Installing Layout Fixer $REF"
 fi
 
@@ -103,3 +108,6 @@ cat <<'MSG'
 Then select text typed on the wrong layout (or just type a word) and tap the right ⌥ key on its own.
 Tap again to convert it back. Help: https://github.com/m-ilchuk/layout-fixer#use
 MSG
+}
+
+main "$@"

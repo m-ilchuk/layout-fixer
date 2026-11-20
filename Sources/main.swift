@@ -187,6 +187,12 @@ final class Fixer {
             reset("Return, Tab, Esc or an arrow key")
             return true
         }
+        // A password: nothing typed there is kept or fixed (most password fields hide their keys from every app,
+        // but not all do).
+        if keyCode == KeyCode.space && Selection.inPasswordField() {
+            reset("a password field")
+            return true
+        }
         if keyCode == KeyCode.delete {
             if flags.contains(.maskAlternate) { session.deleteWordBackward() } else { session.deleteBackward() }
             return true
@@ -337,8 +343,8 @@ final class Fixer {
             let source = self.layouts.other(than: target.id)
             if !restores { self.count(.converted, words: converted.split(whereSeparator: \.isWhitespace).count) }
             self.lastConversion.remember(original: text, output: converted, originalLayoutID: source?.id)
-            pasteboard.clearContents()
-            pasteboard.setString(converted, forType: .string)
+            Clipboard.putTransient(converted, on: pasteboard)
+            let ours = pasteboard.changeCount
             Typist.shortcut(KeyCode.v)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 self.replay(keys: converted.count) { Selection.reselect(converted, after: selection) }
@@ -349,7 +355,12 @@ final class Fixer {
             Flash.shared.show(from: source, to: target)
             log.notice("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                Clipboard.restore(saved, to: pasteboard)
+                // Something copied meanwhile (by you, or another app) stays: only our own text is taken back.
+                if pasteboard.changeCount == ours {
+                    Clipboard.restore(saved, to: pasteboard)
+                } else {
+                    log.notice("the clipboard changed during a conversion; left as it is")
+                }
                 self.convertingSelection = false
             }
         }
@@ -572,6 +583,15 @@ enum Selection {
         return roles
     }
 
+    /// The focused field is a password field, or macOS is in secure input (a password is being typed somewhere).
+    static func inPasswordField() -> Bool {
+        if IsSecureEventInputEnabled() { return true }
+        guard let element = focusedElement() else { return false }
+        var subrole: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+        return (subrole as? String) == kAXSecureTextFieldSubrole as String
+    }
+
     /// How long an Accessibility call may wait for an app (macOS's default is 6 s). The calls run while a key
     /// waits, so an app that doesn't answer must not hold up typing everywhere.
     static let messagingTimeoutSeconds: Float = 0.25
@@ -593,6 +613,18 @@ enum Selection {
 
 enum Clipboard {
     typealias Snapshot = [[NSPasteboard.PasteboardType: Data]]
+    /// Markers clipboard managers honour (nspasteboard.org): don't keep this in the history, it may be private.
+    static let transientTypes = [NSPasteboard.PasteboardType("org.nspasteboard.TransientType"),
+                                 NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")]
+
+    /// The converted text, for the moment it takes to paste it: marked so clipboard managers don't record it.
+    static func putTransient(_ text: String, on pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        for type in transientTypes { item.setData(Data(), forType: type) }
+        pasteboard.writeObjects([item])
+    }
 
     static func save(_ pasteboard: NSPasteboard) -> Snapshot {
         (pasteboard.pasteboardItems ?? []).map { item in
@@ -607,6 +639,8 @@ enum Clipboard {
         let items = snapshot.map { saved -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in saved { item.setData(data, forType: type) }
+            // What was already there, put back: not a new copy for a clipboard manager's history.
+            item.setData(Data(), forType: transientTypes[0])
             return item
         }
         if !items.isEmpty { pasteboard.writeObjects(items) }
@@ -639,6 +673,8 @@ func tapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refc
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static let layoutReloadDelay: TimeInterval = 0.3
+    private var layoutReload: DispatchWorkItem?
     private var statusItem: NSStatusItem!
     private var tapRetry: Timer?
     private var waitingForAccess = false
@@ -685,8 +721,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fixer.layoutChanged()
             self.changed()
         }
+        // Any app can post this notice: a burst of them rebuilds the layouts once, not each time.
         center.addObserver(forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String),
-                           object: nil, queue: .main) { _ in fixer.reloadLayouts(); self.changed() }
+                           object: nil, queue: .main) { _ in
+            self.layoutReload?.cancel()
+            let reload = DispatchWorkItem { fixer.reloadLayouts(); self.changed() }
+            self.layoutReload = reload
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.layoutReloadDelay, execute: reload)
+        }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset("switching apps") }
 

@@ -25,13 +25,16 @@ struct Version: Comparable, CustomStringConvertible {
 }
 
 /// The command that installs one release: its own installer script and its own source, both at the release's
-/// tag, never whatever is on the main branch now.
+/// tag, never whatever is on the main branch now. The script is downloaded whole first and only then run, so a
+/// download that fails or is cut short runs nothing.
 enum InstallCommand {
     static let tagCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
     /// Nil when the tag isn't a plain release tag ("v0.3.0"): it goes into a shell command.
     static func forRelease(tag: String, repository: String) -> String? {
         guard !tag.isEmpty, tag.unicodeScalars.allSatisfy(tagCharacters.contains), Version(tag) != nil else { return nil }
-        return "curl -fsSL https://raw.githubusercontent.com/\(repository)/\(tag)/get.sh | LAYOUT_FIXER_REF=\(tag) bash"
+        let url = "https://raw.githubusercontent.com/\(repository)/refs/tags/\(tag)/get.sh"
+        return "set -o pipefail; script=$(mktemp) || exit 1; trap 'rm -f \"$script\"' EXIT; "
+            + "curl -fsSL \(url) -o \"$script\" && LAYOUT_FIXER_REF=\(tag) bash \"$script\""
     }
 }

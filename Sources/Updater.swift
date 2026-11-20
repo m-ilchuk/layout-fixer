@@ -87,7 +87,12 @@ final class Updater {
 
     private func finish(_ result: Status, _ done: ((Status) -> Void)?) {
         status = result
-        log.notice("update check: \(String(describing: result), privacy: .public)")
+        let summary: String
+        switch result {
+        case .available(let release): summary = "\(release.tag) available"  // not its notes: they'd fill the log
+        default: summary = String(describing: result)
+        }
+        log.notice("update check: \(summary, privacy: .public)")
         onChange?()
         done?(result)
     }

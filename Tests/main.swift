@@ -573,9 +573,11 @@ check("exclusions: at most 200 words being counted, the oldest dropped",
       "\(learned.entries.filter { !$0.isExcluded }.count) \(learned.entries.contains { $0.word == "w0" })", "200 false")
 let exclusionDefaults = UserDefaults(suiteName: "layout-fixer-tests-exclusions-\(ProcessInfo.processInfo.processIdentifier)")!
 learned.save(to: exclusionDefaults)
-check("exclusions: saved and loaded back", String(Exclusions.load(from: exclusionDefaults, now: days(81)) == learned), "true")
-check("exclusions: loading forgets words counted long ago",
-      String(Exclusions.load(from: exclusionDefaults, now: days(200)).entries.count), "1")
+check("exclusions: only the exclusions are saved, not the words being counted",
+      Exclusions.load(from: exclusionDefaults, now: days(81)).entries.map(\.word).joined(separator: " "), "jira")
+check("exclusions: nothing being counted is written down",
+      String(String(decoding: exclusionDefaults.data(forKey: Exclusions.defaultsKey) ?? Data(), as: UTF8.self).contains("w1")),
+      "false")
 exclusionDefaults.set(Data("nope".utf8), forKey: Exclusions.defaultsKey)
 check("exclusions: unreadable ones start empty and are kept aside",
       "\(Exclusions.load(from: exclusionDefaults, now: days(81)).entries.count) "
@@ -913,7 +915,9 @@ check("held: past the limit keys go through", "\(heldKeys.count) \(heldKeys.hold
 
 // The updater installs exactly the release it found: its installer and source at the tag, never main.
 check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", repository: "m-ilchuk/layout-fixer"),
-      "curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/v0.3.0/get.sh | LAYOUT_FIXER_REF=v0.3.0 bash")
+      "set -o pipefail; script=$(mktemp) || exit 1; trap 'rm -f \"$script\"' EXIT; "
+        + "curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/refs/tags/v0.3.0/get.sh -o \"$script\" "
+        + "&& LAYOUT_FIXER_REF=v0.3.0 bash \"$script\"")
 check("install: never main", InstallCommand.forRelease(tag: "main", repository: "m-ilchuk/layout-fixer"), "nil")
 check("install: nothing a shell would run", InstallCommand.forRelease(tag: "v1.0.0;rm -rf ~", repository: "m-ilchuk/layout-fixer"), "nil")
 check("install: no empty tag", InstallCommand.forRelease(tag: "", repository: "m-ilchuk/layout-fixer"), "nil")

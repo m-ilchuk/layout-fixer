@@ -55,12 +55,14 @@ COMMIT="${LAYOUT_FIXER_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)
 # requirement would be this build's own hash, new on every update; so it says "identifier
 # io.github.m-ilchuk.layoutfixer" instead, and every later build keeps the permission (README: Privacy).
 # LAYOUT_FIXER_ADHOC=1 makes an ad-hoc build even where the certificate exists (to test this path).
+# Hardened runtime on both: no other program can load code into the app (DYLD_INSERT_LIBRARIES and the like) to
+# borrow its Accessibility permission.
 IDENTITY="LayoutFixer Local Signing"
 if [[ -z "${LAYOUT_FIXER_ADHOC:-}" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
-  codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
+  codesign --force --options runtime --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP"
   echo "signed with $IDENTITY"
 else
-  codesign --force --sign - --identifier "$BUNDLE_ID" -r="designated => identifier \"$BUNDLE_ID\"" "$APP"
+  codesign --force --options runtime --sign - --identifier "$BUNDLE_ID" -r="designated => identifier \"$BUNDLE_ID\"" "$APP"
   echo "ad-hoc signed, recognised by its identifier"
 fi
 echo "built $APP"

@@ -133,8 +133,8 @@ Accessibility with **–**.
 
 Layout Fixer needs Accessibility to read the keys you press and the text you select, and to type the converted text.
 It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch). The only words it
-writes down are the ones on its Exclusions list and those it is counting toward it (a word whose fix you undid,
-forgotten after 30 days), kept in its settings on this Mac; statistics are counts only, and the debug log never
+writes down are the ones on its Exclusions list, in its settings on this Mac (a word whose fix you undid fewer than
+3 times is only kept in memory); statistics are counts only, and the debug log never
 contains your text. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
 **Check for updates automatically** turns it off. All of its code is in [`Sources/`](Sources).
 

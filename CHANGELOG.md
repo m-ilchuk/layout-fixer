@@ -7,6 +7,18 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Security
+- Words whose fix you undid once or twice are kept only in memory: only the Exclusions list itself is written to
+  Layout Fixer's settings. (In 0.3.0 they were saved for up to 30 days.)
+- The app is built with macOS's hardened runtime: no other program can load code into it to use its Accessibility
+  permission.
+- Updates download the installer whole before running it (a cut-off download runs nothing) and fetch the release
+  by its tag only, so no branch can stand in for it.
+- Converting a selection marks the converted text so clipboard managers don't record it, and the clipboard is put
+  back only if nothing else was copied in the meantime.
+- Nothing is kept or fixed in password fields, or while macOS's secure input is on.
+- A failed install leaves the installed app as it was; the update log no longer holds the release notes.
+
 ## 0.3.0 — 2026-11-21
 
 ### New

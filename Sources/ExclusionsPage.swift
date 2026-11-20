@@ -105,8 +105,8 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         buttons.spacing = 8
 
         let privacy = NSTextField(wrappingLabelWithString:
-            "These words, and the ones being counted, stay on this Mac in Layout Fixer's settings. A word undone "
-            + "fewer than 3 times is forgotten after 30 days.")
+            "These words stay on this Mac, in Layout Fixer's settings. A word undone fewer than 3 times is only "
+            + "remembered while Layout Fixer runs (at most 30 days), never written down.")
         privacy.textColor = .secondaryLabelColor
         privacy.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         privacy.preferredMaxLayoutWidth = width

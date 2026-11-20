@@ -14,8 +14,12 @@ if [[ -d ~/Applications/"$OLD_APP_NAME" ]]; then
   rm -rf ~/Applications/"$OLD_APP_NAME"
   RENAMED=1
 fi
+# Copied next to it first, then swapped in: a copy that fails leaves the installed app as it was.
+NEW=~/Applications/".$APP_NAME.new"
+rm -rf "$NEW"
+cp -R build/"$APP_NAME" "$NEW"
 rm -rf ~/Applications/"$APP_NAME"
-cp -R build/"$APP_NAME" ~/Applications/
+mv "$NEW" ~/Applications/"$APP_NAME"
 if [[ -z "${LAYOUT_FIXER_NO_LAUNCH:-}" ]]; then
   open ~/Applications/"$APP_NAME"
 elif (( RENAMED )); then

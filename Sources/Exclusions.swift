@@ -2,7 +2,9 @@ import Foundation
 
 /// Words fix-while-typing leaves as typed: learned from undos (a word whose automatic fix was undone 3 times) or
 /// added by the person. Each is the word as typed, in the language of the layout it was typed on ("csv" on
-/// English, never "сім"). The person's own words: kept only in the app's preferences, never logged or sent.
+/// English, never "сім"). The person's own words: only the exclusions themselves are saved (in the app's
+/// preferences); words still being counted stay in memory, so a word undone once or twice never reaches disk.
+/// Never logged or sent.
 struct Exclusions: Codable, Equatable {
     enum Origin: String, Codable { case learned, added }
 
@@ -29,12 +31,19 @@ struct Exclusions: Codable, Equatable {
     static let defaultsKey = "exclusions"
 
     private(set) var entries: [Entry] = []
+    private enum CodingKeys: String, CodingKey { case entries }
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         entries = try values.decodeIfPresent([Entry].self, forKey: .entries) ?? []
+    }
+
+    /// Saves the exclusions only, never the words still being counted.
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(entries.filter(\.isExcluded), forKey: .entries)
     }
 
     /// The exclusions themselves, newest first (what the window lists).
