@@ -4,16 +4,15 @@ import AppKit
 /// the same one-line installer as the README. The only network calls Layout Fixer makes; they send nothing about you.
 final class Updater {
     static let repository = "m-ilchuk/layout-fixer"
-    static let branch = "main"
     static let checkInterval: TimeInterval = 24 * 60 * 60
-    static let installCommand =
-        "curl -fsSL https://raw.githubusercontent.com/\(repository)/\(branch)/get.sh | bash"
     static var logURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/LayoutFixer-update.log")
     }
 
     struct Release: Equatable {
         let version: String
+        /// The release's tag ("v0.3.0"): what gets installed, its installer and its source.
+        let tag: String
         let notes: String
     }
 
@@ -78,7 +77,7 @@ final class Updater {
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let tag = json["tag_name"] as? String, let latest = Version(tag) {
                 let notes = (json["body"] as? String) ?? ""
-                result = latest > current ? .available(Release(version: latest.description, notes: notes)) : .upToDate
+                result = latest > current ? .available(Release(version: latest.description, tag: tag, notes: notes)) : .upToDate
             } else {
                 result = .failed("GitHub answered \(code)")
             }
@@ -93,16 +92,22 @@ final class Updater {
         done?(result)
     }
 
-    /// Downloads, builds and installs the latest version, then opens the new copy and quits this one.
+    /// Downloads, builds and installs the release found by the last check, then opens the new copy and quits this one.
     func install() {
         guard !installing else { return }
+        guard case .available(let release) = status,
+              let command = InstallCommand.forRelease(tag: release.tag, repository: Updater.repository)
+        else {
+            log.notice("install asked for without a release to install; checking first")
+            return check { if case .available = $0 { self.install() } }
+        }
         installing = true
         compileStarted = nil
         progress = UpdateProgress.state(log: "", compilingFor: 0, expectedCompile: expectedCompile)
         onChange?()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", Updater.installCommand]
+        process.arguments = ["-c", command]
         // The installer leaves restarting to us (LAYOUT_FIXER_NO_LAUNCH): it can't reliably quit the app that started it.
         process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(),
                                "LAYOUT_FIXER_NO_LAUNCH": "1"]
@@ -127,7 +132,7 @@ final class Updater {
                 alert.runModal()
             }
         }
-        log.notice("installing the latest release")
+        log.notice("installing release \(release.tag, privacy: .public)")
         do {
             try process.run()
             progressTimer = Timer.scheduledTimer(withTimeInterval: Updater.progressInterval, repeats: true) { [weak self] _ in

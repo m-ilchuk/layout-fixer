@@ -30,10 +30,14 @@ if [[ -n "${LAYOUT_FIXER_SOURCE_URL:-}" ]]; then
   SOURCE_URL="$LAYOUT_FIXER_SOURCE_URL"
 else
   if [[ "$REF" == "latest" ]]; then
+    # Never the newest code instead: when GitHub can't say which release is latest (no network, its hourly limit),
+    # stop rather than build whatever is on main.
     TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
       | sed -n 's/^ *"tag_name": *"\([^"]*\)".*/\1/p' | head -1 || true)
-    REF="${TAG:-main}"  # no release published yet: the newest code
+    [[ -n "$TAG" ]] || fail "couldn't ask GitHub for the latest release (no network, or its hourly limit). Try again later, or set LAYOUT_FIXER_REF to a release tag such as v0.2.9."
+    REF="$TAG"
   fi
+  [[ "$REF" =~ ^[A-Za-z0-9._-]+$ ]] || fail "LAYOUT_FIXER_REF must be a release tag or branch name, not \"$REF\"."
   SOURCE_URL="https://github.com/$REPO/archive/$REF.tar.gz"
   echo "Installing Layout Fixer $REF"
 fi

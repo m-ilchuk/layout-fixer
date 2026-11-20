@@ -893,5 +893,12 @@ check("stats: reset clears and counts from now",
       "\(counts(cleared.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).allTime)) \(cleared.since == kyivDate("2026-11-21 10:00"))",
       "0/0/0 true")
 
+// The updater installs exactly the release it found: its installer and source at the tag, never main.
+check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", repository: "m-ilchuk/layout-fixer"),
+      "curl -fsSL https://raw.githubusercontent.com/m-ilchuk/layout-fixer/v0.3.0/get.sh | LAYOUT_FIXER_REF=v0.3.0 bash")
+check("install: never main", InstallCommand.forRelease(tag: "main", repository: "m-ilchuk/layout-fixer"), "nil")
+check("install: nothing a shell would run", InstallCommand.forRelease(tag: "v1.0.0;rm -rf ~", repository: "m-ilchuk/layout-fixer"), "nil")
+check("install: no empty tag", InstallCommand.forRelease(tag: "", repository: "m-ilchuk/layout-fixer"), "nil")
+
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

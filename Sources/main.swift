@@ -485,6 +485,15 @@ enum Selection {
         return roles
     }
 
+    /// How long an Accessibility call may wait for an app (macOS's default is 6 s). The calls run while a key
+    /// waits, so an app that doesn't answer must not hold up typing everywhere.
+    static let messagingTimeoutSeconds: Float = 0.25
+
+    /// Set once at launch: on the system-wide element it applies to every app.
+    static func limitWaiting() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), messagingTimeoutSeconds)
+    }
+
     private static func focusedElement() -> AXUIElement? {
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
@@ -533,6 +542,9 @@ var eventTap: CFMachPort?
 
 func tapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        // Keys typed while the tap was off were never seen: what's remembered no longer matches the screen.
+        log.notice("key tap was turned off by macOS (\(type == .tapDisabledByTimeout ? "too slow" : "user input", privacy: .public)); turning it back on")
+        fixer.reset("macOS turning the key tap off")
         if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -578,6 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let enabledSettingTitle = "Enabled"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Selection.limitWaiting()
         fixer.reloadLayouts()
         let center = DistributedNotificationCenter.default()
         center.addObserver(forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),

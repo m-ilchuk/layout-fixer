@@ -23,3 +23,15 @@ struct Version: Comparable, CustomStringConvertible {
         (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
     }
 }
+
+/// The command that installs one release: its own installer script and its own source, both at the release's
+/// tag, never whatever is on the main branch now.
+enum InstallCommand {
+    static let tagCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+    /// Nil when the tag isn't a plain release tag ("v0.3.0"): it goes into a shell command.
+    static func forRelease(tag: String, repository: String) -> String? {
+        guard !tag.isEmpty, tag.unicodeScalars.allSatisfy(tagCharacters.contains), Version(tag) != nil else { return nil }
+        return "curl -fsSL https://raw.githubusercontent.com/\(repository)/\(tag)/get.sh | LAYOUT_FIXER_REF=\(tag) bash"
+    }
+}
