@@ -44,6 +44,9 @@ final class TypingSession {
     private(set) var lastClear = "starting up"
     /// Called with a local layout (not English) whenever it becomes the one in use: English flips to it from then on.
     var onLocalLayoutUsed: ((String) -> Void)?
+    /// For lines that would come at every Space (a word left as typed for an everyday reason): kept only briefly.
+    /// Nil: they go to `log` like the rest.
+    var logDetail: ((String) -> Void)?
     /// Called for each fix, conversion and undo.
     var onEvent: ((Event) -> Void)?
     /// Words fix-while-typing leaves as typed (the person's exclusions).
@@ -362,6 +365,8 @@ final class TypingSession {
             let word = AutoFix.wordRanges(in: buffer).last.map { buffer[$0] }
             detail = "\(word?.count ?? 0) keys on \(word?.first?.layoutID ?? "?")"
         }
-        log("auto-fix skipped: \(reason.rawValue) (\(detail))")
+        // The everyday reasons (a real word, a short one) at every Space would fill the log kept on disk.
+        let everyday: Set<AutoFix.Skip> = [.noWord, .tooShort, .realWordHere]
+        (everyday.contains(reason) ? logDetail ?? log : log)("auto-fix skipped: \(reason.rawValue) (\(detail))")
     }
 }

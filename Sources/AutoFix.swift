@@ -17,37 +17,80 @@ extension Speller {
     }
 }
 
+/// Answers remembered by key: the spell checker takes up to ~9 ms for a correction or guesses, on every Space,
+/// for the same words again and again. Forgets everything past `limit` answers.
+final class Memo<Value> {
+    static var limit: Int { 4000 }
+    private let lock = NSLock()
+    private var values: [String: Value] = [:]
+    /// How many answers were worked out rather than remembered (for the tests).
+    private(set) var computed = 0
+
+    func value(_ key: String, _ compute: () -> Value) -> Value {
+        if let known = lock.withLock({ values[key] }) { return known }
+        let value = compute()
+        lock.withLock {
+            if values.count >= Memo.limit { values.removeAll() }
+            values[key] = value
+            computed += 1
+        }
+        return value
+    }
+
+    func clear() { lock.withLock { values.removeAll() } }
+}
+
 struct SystemSpeller: Speller {
+    private static let dictionaries = Memo<String?>()
+    private static let validity = Memo<Bool>()
+    private static let corrections = Memo<String?>()
+    private static let guessLists = Memo<[String]>()
+
+    /// Forget remembered answers (the layouts or the spell checker's settings may have changed).
+    static func forget() {
+        dictionaries.clear(); validity.clear(); corrections.clear(); guessLists.clear()
+    }
+
     func supports(_ language: String) -> Bool { dictionary(for: language) != nil }
 
     func isValid(_ word: String, language: String) -> Bool {
         guard let dictionary = dictionary(for: language) else { return false }
-        return NSSpellChecker.shared.checkSpelling(
-            of: word, startingAt: 0, language: dictionary, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
-        ).location == NSNotFound
+        return SystemSpeller.validity.value(Self.key(word, dictionary)) {
+            NSSpellChecker.shared.checkSpelling(
+                of: word, startingAt: 0, language: dictionary, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil
+            ).location == NSNotFound
+        }
     }
 
     func correction(for word: String, language: String) -> String? {
         guard let dictionary = dictionary(for: language) else { return nil }
-        let range = NSRange(location: 0, length: (word as NSString).length)
-        return NSSpellChecker.shared.correction(
-            forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
-        )
+        return SystemSpeller.corrections.value(Self.key(word, dictionary)) {
+            let range = NSRange(location: 0, length: (word as NSString).length)
+            return NSSpellChecker.shared.correction(
+                forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
+            )
+        }
     }
 
     func guesses(for word: String, language: String) -> [String] {
         guard let dictionary = dictionary(for: language) else { return [] }
-        let range = NSRange(location: 0, length: (word as NSString).length)
-        return NSSpellChecker.shared.guesses(
-            forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
-        ) ?? []
+        return SystemSpeller.guessLists.value(Self.key(word, dictionary)) {
+            let range = NSRange(location: 0, length: (word as NSString).length)
+            return NSSpellChecker.shared.guesses(
+                forWordRange: range, in: word, language: dictionary, inSpellDocumentWithTag: 0
+            ) ?? []
+        }
     }
 
     /// "uk" → "uk", "pt" → "pt_BR": the macOS dictionary for a layout's language, if there is one.
     private func dictionary(for language: String) -> String? {
-        let available = NSSpellChecker.shared.availableLanguages
-        return available.first { $0 == language } ?? available.first { $0.hasPrefix(language + "_") }
+        SystemSpeller.dictionaries.value(language) {
+            let available = NSSpellChecker.shared.availableLanguages
+            return available.first { $0 == language } ?? available.first { $0.hasPrefix(language + "_") }
+        }
     }
+
+    private static func key(_ word: String, _ dictionary: String) -> String { dictionary + "\u{1}" + word }
 }
 
 /// Punto-style fixing while you type. When a finished word belongs to the other layout, it is retyped there,

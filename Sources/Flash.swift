@@ -19,23 +19,33 @@ final class Flash {
     func show(from source: KeyLayout?, to target: KeyLayout) {
         guard enabled else { return }
         let from = source.map { $0.language.uppercased() + " → " } ?? ""
-        // Wait a moment so the cursor has moved to the end of the retyped text.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { self.present(from + target.language.uppercased()) }
+        present(from + target.language.uppercased())
     }
 
     /// A short message instead of the layouts, `delay` seconds from now (after a layout flash has faded).
     func say(_ text: String, after delay: TimeInterval = 0) {
         guard enabled else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.present(text) }
+        present(text, after: delay)
     }
 
-    private func present(_ text: String) {
+    /// Where the cursor is gets asked away from the main thread (the key tap runs there, and an app can be slow
+    /// to say), after a moment so the cursor has moved to the end of the retyped text.
+    static let caretWaitSeconds = 0.08
+
+    private func present(_ text: String, after delay: TimeInterval = 0) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay + Flash.caretWaitSeconds) {
+            let caret = Selection.caretRect()
+            DispatchQueue.main.async { self.present(text, caret: caret) }
+        }
+    }
+
+    private func present(_ text: String, caret: CGRect?) {
         label.stringValue = text
         let padding = NSSize(width: 10, height: 4)
         let textSize = label.fittingSize
         let size = NSSize(width: textSize.width + 2 * padding.width, height: textSize.height + 2 * padding.height)
         label.frame = NSRect(origin: NSPoint(x: padding.width, y: padding.height), size: textSize)
-        panel.setFrame(NSRect(origin: position(for: size), size: size), display: true)
+        panel.setFrame(NSRect(origin: position(for: size, caret: caret), size: size), display: true)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
         hideTimer?.invalidate()
@@ -49,9 +59,9 @@ final class Flash {
     }
 
     /// Just below the text cursor, or below-right of the mouse pointer.
-    private func position(for size: NSSize) -> NSPoint {
+    private func position(for size: NSSize, caret: CGRect?) -> NSPoint {
         let gap: CGFloat = 4
-        if let caret = Selection.caretRect(), let screenHeight = NSScreen.screens.first?.frame.height {
+        if let caret, let screenHeight = NSScreen.screens.first?.frame.height {
             // Accessibility measures from the top of the main screen; windows from the bottom.
             return NSPoint(x: caret.minX, y: screenHeight - caret.maxY - size.height - gap)
         }

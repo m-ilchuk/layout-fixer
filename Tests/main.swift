@@ -913,6 +913,15 @@ heldKeys.begin()
 for n in 0..<(HeldKeys<String>.limit + 3) { _ = heldKeys.hold("k\(n)") }
 check("held: past the limit keys go through", "\(heldKeys.count) \(heldKeys.hold("one more"))", "\(HeldKeys<String>.limit) false")
 
+// The spell checker's answers are remembered: the same question twice is worked out once.
+let memo = Memo<Int>()
+var asked = 0
+_ = memo.value("uk\u{1}тікет") { asked += 1; return 1 }
+_ = memo.value("uk\u{1}тікет") { asked += 1; return 2 }
+check("memo: asked once", "\(asked) \(memo.value("uk\u{1}тікет") { 3 })", "1 1")
+for n in 0..<Memo<Int>.limit { _ = memo.value("w\(n)") { n } }
+check("memo: forgets everything past the limit", "\(memo.value("uk\u{1}тікет") { 9 })", "9")
+
 // The updater installs exactly the release it found: its installer and source at the tag, never main.
 check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", repository: "m-ilchuk/layout-fixer"),
       "set -o pipefail; script=$(mktemp) || exit 1; trap 'rm -f \"$script\"' EXIT; "

@@ -10,10 +10,12 @@ MIN_MACOS=13.0
 # The compiler's cache of Apple's frameworks: most of a first build (about 40 s of 45). Inside build/ by default;
 # the installer keeps it in ~/Library/Caches, so updates reuse it (about 8 s). The compiler checks it per version.
 MODULE_CACHE="${LAYOUT_FIXER_MODULE_CACHE:-build/module-cache}"
-SWIFTC=(swiftc -O -module-cache-path "$MODULE_CACHE")
+# Whole-module: the compiler sees all files at once (about 40% faster here, and a smaller app).
+SWIFTC=(swiftc -O -wmo -module-cache-path "$MODULE_CACHE")
 
 if [[ "${1:-}" == "--test" ]]; then
-  "${SWIFTC[@]}" "${CORE[@]}" Tests/Corpus.swift Tests/main.swift -o build/tests
+  # Tests without optimising: about 2 s to build instead of 15, a few seconds slower to run.
+  swiftc -Onone -wmo -module-cache-path "$MODULE_CACHE" "${CORE[@]}" Tests/Corpus.swift Tests/main.swift -o build/tests
   exec build/tests
 fi
 

@@ -7,6 +7,16 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Faster
+- Updates build in about 8 seconds instead of 14 on an M3 (whole-module compiling), and the app is smaller.
+- Words the dictionaries don't know (technical terms, typos) no longer cost up to 17 ms at every Space: the spell
+  checker's answers are remembered.
+- In web pages a fix starts sooner (far fewer Accessibility questions before the first key), an app that stops
+  answering is left alone for a few seconds instead of slowing every key, and the flash finds the cursor away from
+  the keyboard handler.
+- Less written to disk: statistics are saved a moment after a fix, not during it, and the everyday "left as typed"
+  lines are kept only briefly in the log.
+
 ### Security
 - Words whose fix you undid once or twice are kept only in memory: only the Exclusions list itself is written to
   Layout Fixer's settings. (In 0.3.0 they were saved for up to 30 days.)

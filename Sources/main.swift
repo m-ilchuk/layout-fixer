@@ -55,6 +55,7 @@ final class Fixer {
     init() {
         session.autoFix = UserDefaults.standard.bool(forKey: "autoFix")
         session.onLocalLayoutUsed = { UserDefaults.standard.set($0, forKey: "preferredLocal") }
+        session.logDetail = { message in log.info("\(message, privacy: .public)") }
         session.onEvent = { [unowned self] event in
             switch event {
             case .autoFixed(let words): self.count(.autoFixed, words: words)
@@ -71,7 +72,7 @@ final class Fixer {
 
     func resetStatistics() {
         statistics.reset(now: Date())
-        statistics.save(to: .standard)
+        saveStatistics()
     }
 
     /// An undone fix teaches: the 3rd undo of the same word puts it on the list.
@@ -104,12 +105,27 @@ final class Fixer {
         return nil
     }
 
+    /// Counts are saved a moment after the last change, not inside the key tap at every fix.
+    static let statisticsSaveDelay: TimeInterval = 2
+    private var statisticsSave: DispatchWorkItem?
+
     private func count(_ kind: Statistics.Kind, words: Int) {
         statistics.record(kind, words: words, at: Date())
+        guard statisticsSave == nil else { return }
+        let save = DispatchWorkItem { [unowned self] in self.saveStatistics() }
+        statisticsSave = save
+        DispatchQueue.main.asyncAfter(deadline: .now() + Fixer.statisticsSaveDelay, execute: save)
+    }
+
+    /// Now (on quit), or when the delay is up.
+    func saveStatistics() {
+        statisticsSave?.cancel()
+        statisticsSave = nil
         statistics.save(to: .standard)
     }
 
     func reloadLayouts() {
+        SystemSpeller.forget()
         session.setLayouts(LayoutSet(layouts: KeyLayout.enabledLayouts(),
                                      preferredLocalID: UserDefaults.standard.string(forKey: "preferredLocal")),
                            current: KeyLayout.currentLayoutID())
@@ -126,7 +142,7 @@ final class Fixer {
     func handle(type: CGEventType, event: CGEvent) -> Bool {
         guard enabled, event.getIntegerValueField(.eventSourceUserData) != syntheticMarker else { return true }
         // A fix is being typed: keys wait until it's done (handled then, in order), or they'd land inside it.
-        if (type == .keyDown || type == .flagsChanged), let copy = event.copy(),
+        if held.replaying, type == .keyDown || type == .flagsChanged, let copy = event.copy(),
            held.hold(HeldKey(type: type, event: copy)) {
             return false
         }
@@ -380,6 +396,14 @@ final class Fixer {
     }
 }
 
+/// A time shared between the main thread and the replay queue.
+final class Moment {
+    private let lock = NSLock()
+    private var date = Date.distantPast
+    var isAhead: Bool { lock.withLock { date > Date() } }
+    func set(_ new: Date) { lock.withLock { date = new } }
+}
+
 /// A yes/no shared between the main thread and the replay queue.
 final class Flag {
     private let lock = NSLock()
@@ -573,7 +597,8 @@ enum Selection {
             AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &role)
             guard let name = role as? String else { break }
             roles.append(name)
-            if name == kAXWindowRole as String { break }
+            // A web page's field is decided by the page itself: nothing above it can change the answer.
+            if name == kAXWindowRole as String || name == ReplaceMethod.webAreaRole { break }
             var parent: CFTypeRef?
             guard AXUIElementCopyAttributeValue(node, kAXParentAttribute as CFString, &parent) == .success,
                   let parent, CFGetTypeID(parent) == AXUIElementGetTypeID()
@@ -601,11 +626,21 @@ enum Selection {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), messagingTimeoutSeconds)
     }
 
+    /// After an app doesn't answer in time, it's left alone for a few seconds (fixes go as keystrokes, the screen
+    /// isn't read): asking again at every key would stall each one by the timeout.
+    static let unresponsiveBackoffSeconds: TimeInterval = 5
+    private static let unresponsiveUntil = Moment()
+
     private static func focusedElement() -> AXUIElement? {
+        guard !unresponsiveUntil.isAhead else { return nil }
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
+        let result = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused)
+        if result == .cannotComplete {
+            log.notice("the focused app didn't answer Accessibility in time; leaving it alone for a few seconds")
+            unresponsiveUntil.set(Date().addingTimeInterval(unresponsiveBackoffSeconds))
+        }
+        guard result == .success, let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
         else { return nil }
         return (element as! AXUIElement)
     }
@@ -809,7 +844,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let trusted = AXIsProcessTrusted()
         let listen = CGPreflightListenEventAccess()
-        log.notice("access: accessibility=\(trusted) inputMonitoring=\(listen)")
+        // Checked every 3 s while not allowed: logged when it changes, not each time.
+        if loggedAccess?.trusted != trusted || loggedAccess?.listen != listen {
+            loggedAccess = (trusted, listen)
+            log.notice("access: accessibility=\(trusted) inputMonitoring=\(listen)")
+        }
         // A tap made before Accessibility is granted gets no key presses even after it is granted, so wait for it.
         // A tap that can change keys needs only Accessibility; Input Monitoring is for listen-only taps.
         waitingForAccess = !trusted
@@ -837,6 +876,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshIcon()
         settingsWindow.refresh()
     }
+
+    private var loggedAccess: (trusted: Bool, listen: Bool)?
 
     private func retryTap() {
         tapRetry?.invalidate()
@@ -978,6 +1019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    func applicationWillTerminate(_ notification: Notification) { fixer.saveStatistics() }
 }
 
 // `LayoutFixer --layouts`: print what it will switch between (the installer shows this) and exit.
