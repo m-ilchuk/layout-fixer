@@ -116,11 +116,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             for (cell, counts) in zip(cells, periods) { cell.stringValue = value(counts).formatted() }
         }
         if let kept = summary.lastSevenDays.keptRate {
-            keptLabel.stringValue = "Kept \(Int((kept * 100).rounded()))% of the automatic fixes in the last 7 days."
+            keptLabel.stringValue = "You kept \(Int((kept * 100).rounded()))% of the words fixed while typing in the last 7 days."
         } else {
-            keptLabel.stringValue = "No automatic fixes in the last 7 days."
+            keptLabel.stringValue = "No words fixed while typing in the last 7 days."
         }
-        sinceLabel.stringValue = "Counting since \(summary.since.formatted(date: .long, time: .omitted)). "
+        sinceLabel.stringValue = "Counts words, not fixes: zr cghfdb → як справи is one fix of 2 words. "
+            + "Counting since \(summary.since.formatted(date: .long, time: .omitted)). "
             + "Statistics keep only counts, never what you type."
     }
 
@@ -262,13 +263,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     private func makeStatisticsPage() {
-        let headers = ["", "Today", "7 days", "All time"].map { title -> NSTextField in
+        let headers = ["Words", "Today", "7 days", "All time"].map { title -> NSTextField in
             let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
             label.textColor = .secondaryLabelColor
             return label
         }
-        let titles = ["Fixed while typing", "Converted with right ⌥", "Undone right after a fix"]
+        let titles = ["Fixed while typing", "Converted with right ⌥", "Fixed, then undone by you"]
         statisticsCells = titles.map { _ in
             (0..<3).map { _ in
                 let cell = NSTextField(labelWithString: "0")
