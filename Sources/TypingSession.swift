@@ -22,6 +22,8 @@ final class TypingSession {
         case converted(words: Int)
         /// An automatic fix undone right after it: `typed` is each undone word as it was typed, on `layoutID`.
         case undone(typed: [String], layoutID: String)
+        /// That undo taken back at once (right ⌥ tapped again): the fix stays after all.
+        case restored(typed: [String], layoutID: String)
     }
 
     static let maxRemembered = 300
@@ -44,6 +46,8 @@ final class TypingSession {
     var onLocalLayoutUsed: ((String) -> Void)?
     /// Called for each fix, conversion and undo.
     var onEvent: ((Event) -> Void)?
+    /// Words fix-while-typing leaves as typed (the person's exclusions).
+    var isExcluded: AutoFix.IsExcluded = AutoFix.noExclusions
 
     private var switchedAt: Date?
     private var switchedFrom: String?
@@ -172,10 +176,15 @@ final class TypingSession {
         else { return nil }
         let word = range.lowerBound..<(buffer[range].lastIndex(where: { !$0.isSpace }).map { $0 + 1 } ?? range.upperBound)
         let typed = buffer[word].map(\.text).joined()
+        var undid: Undone?
         if let change = lastChange, change.words.last == word {
             if change.automatic {
                 log("auto-fix undone with right ⌥")
-                onEvent?(.undone(typed: [change.typed.last ?? ""], layoutID: change.sourceID))
+                undid = Undone(typed: [change.typed.last ?? ""], layoutID: change.sourceID)
+                onEvent?(.undone(typed: undid!.typed, layoutID: undid!.layoutID))
+            } else if let undone = change.undid {
+                log("auto-fix undo taken back with right ⌥")
+                onEvent?(.restored(typed: undone.typed, layoutID: undone.layoutID))
             }
         } else {
             onEvent?(.converted(words: 1))
@@ -183,7 +192,7 @@ final class TypingSession {
         let fixed = Converter.retype(buffer[range], on: target)
         buffer.replaceSubrange(range, with: fixed)
         appSwitched(to: target.id)
-        lastChange = Change(automatic: false, words: [word], typed: [typed], strokes: [], sourceID: source.id)
+        lastChange = Change(automatic: false, words: [word], typed: [typed], strokes: [], sourceID: source.id, undid: undid)
         keepBefore = max(keepBefore, buffer.count)
         return Edit(erase: range.count, text: fixed.map(\.text).joined(), source: source, target: target)
     }
@@ -200,7 +209,10 @@ final class TypingSession {
         /// The keys of the last changed word (automatic fixes only).
         let strokes: [KeyStroke]
         let sourceID: String
+        /// A right ⌥ tap that undid an automatic fix: what it undid, so tapping again takes the undo back.
+        var undid: Undone? = nil
     }
+    private struct Undone { let typed: [String]; let layoutID: String }
     private var lastChange: Change?
     /// The last fixed word was erased with ⌫ or ⌥⌫: typed again with the same keys on its own layout, it's an undo.
     private var erasedFix: (strokes: [KeyStroke], typed: String, sourceID: String)?
@@ -306,7 +318,7 @@ final class TypingSession {
 
     /// Fix-while-typing: on Space, the word just finished (and the words before it on the same wrong layout).
     private func fixWordBeforeSpace() -> Edit? {
-        let decision = AutoFix.decide(buffer: buffer, layouts: layouts, speller: speller)
+        let decision = AutoFix.decide(buffer: buffer, layouts: layouts, speller: speller, isExcluded: isExcluded)
         if case .fixShortWords(let found, let target) = decision {
             guard let range = keepingChoices(found) else { return nil }
             return fixShortWords(range, on: target)

@@ -67,6 +67,14 @@ In the window:
   there when you open Layout Fixer again. While it waits for Accessibility it shows ⚠ even when hidden.
 - **Check for Updates…** and **Check for updates automatically** (once a day).
 
+**Statistics** (at the top of the window): words fixed while typing, converted with right ⌥, and automatic fixes
+you undid right after, for today, the last 7 days and all time, and the share of automatic fixes you kept.
+
+**Exclusions**: words fix-while-typing leaves as you typed them. Undo a fix right after it (tap right ⌥, press ⌘Z,
+or erase the word and type it again on the layout you meant) and that word stays this time; undo the same word 3
+times (`csv`, which would turn into `сім`) and it's added here for good. **Add…** a word yourself, or **Remove**
+one to let it be fixed again. Right ⌥ still converts them.
+
 ## Layouts
 
 It uses the keyboard layouts you have turned on in System Settings › Keyboard › Text Input › Input Sources, and
@@ -124,8 +132,10 @@ Accessibility with **–**.
 ## Privacy
 
 Layout Fixer needs Accessibility to read the keys you press and the text you select, and to type the converted text.
-It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch) and never writes your
-text anywhere. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
+It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch). The only words it
+writes down are the ones on its Exclusions list and those it is counting toward it (a word whose fix you undid,
+forgotten after 30 days), kept in its settings on this Mac; statistics are counts only, and the debug log never
+contains your text. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
 **Check for updates automatically** turns it off. All of its code is in [`Sources/`](Sources).
 
 So that updates keep the Accessibility permission, macOS recognises Layout Fixer by its identifier

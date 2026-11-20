@@ -23,6 +23,12 @@ final class Flash {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { self.present(from + target.language.uppercased()) }
     }
 
+    /// A short message instead of the layouts, `delay` seconds from now (after a layout flash has faded).
+    func say(_ text: String, after delay: TimeInterval = 0) {
+        guard enabled else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.present(text) }
+    }
+
     private func present(_ text: String) {
         label.stringValue = text
         let padding = NSSize(width: 10, height: 4)

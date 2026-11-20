@@ -24,6 +24,7 @@ struct SettingsStatus {
 final class SettingsWindow: NSObject, NSWindowDelegate {
     static let width: CGFloat = 460
     static let refreshSeconds: TimeInterval = 1.5
+    static let snapshotSettleSeconds: TimeInterval = 0.3
 
     private let settings: [Setting]
     private let status: () -> SettingsStatus
@@ -46,10 +47,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private let resetStatisticsAction: () -> Void
 
     /// The pages, picked at the top: General (settings, the README picture) and Statistics.
-    private let pagePicker = NSSegmentedControl(labels: ["General", "Statistics"], trackingMode: .selectOne,
+    private let pagePicker = NSSegmentedControl(labels: ["General", "Statistics", "Exclusions"], trackingMode: .selectOne,
                                                 target: nil, action: nil)
     private let generalPage = NSStackView()
     private let statisticsPage = NSStackView()
+    private let exclusionsPage: ExclusionsPage
     /// Rows: fixed while typing, converted with right ⌥, undone; columns: today, 7 days, all time.
     private var statisticsCells: [[NSTextField]] = []
     private let keptLabel = NSTextField(labelWithString: "")
@@ -57,13 +59,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     init(settings: [Setting], status: @escaping () -> SettingsStatus, update: @escaping () -> Void,
          exportLog: @escaping () -> Void, statistics: @escaping () -> Statistics.Summary,
-         resetStatistics: @escaping () -> Void) {
+         resetStatistics: @escaping () -> Void, exclusions: ExclusionsPage.Model) {
         self.settings = settings
         self.status = status
         self.updateAction = update
         self.exportAction = exportLog
         self.statistics = statistics
         self.resetStatisticsAction = resetStatistics
+        self.exclusionsPage = ExclusionsPage(model: exclusions, width: SettingsWindow.width - 40)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsWindow.width, height: 100),
                           styleMask: [.titled, .closable], backing: .buffered, defer: true)
         super.init()
@@ -102,6 +105,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         for (checkbox, setting) in zip(checkboxes, settings) { checkbox.state = setting.isOn() ? .on : .off }
         if !statisticsPage.isHidden { refreshStatistics() }
+        if !exclusionsPage.view.isHidden { exclusionsPage.refresh() }
     }
 
     private func refreshStatistics() {
@@ -117,7 +121,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             keptLabel.stringValue = "No automatic fixes in the last 7 days."
         }
         sinceLabel.stringValue = "Counting since \(summary.since.formatted(date: .long, time: .omitted)). "
-            + "Only counts are kept, never what you type."
+            + "Statistics keep only counts, never what you type."
     }
 
     /// Render the window's content to a PNG without showing it (`LayoutFixer --settings-snapshot file.png`).
@@ -126,7 +130,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         window.appearance = NSAppearance(named: appearance)
         guard let view = window.contentView else { return }
         view.layoutSubtreeIfNeeded()
-        view.frame.size = view.fittingSize
+        window.setContentSize(view.fittingSize)
+        // On screen (out of sight) for a moment: a table draws its rows only once its window has been shown.
+        window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+        window.orderFrontRegardless()
+        RunLoop.current.run(until: Date().addingTimeInterval(SettingsWindow.snapshotSettleSeconds))
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        defer { window.orderOut(nil) }
         guard let content = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: content)
         // The view itself is transparent: put it on the window's own background (with its rounded corners and a
@@ -235,11 +246,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         generalPage.setCustomSpacing(4, after: usage)
         makeStatisticsPage()
         statisticsPage.isHidden = true
+        exclusionsPage.view.isHidden = true
 
         pagePicker.selectedSegment = 0
         pagePicker.target = self
         pagePicker.action = #selector(pickPage)
-        let stack = NSStackView(views: [heading, pagePicker, generalPage, statisticsPage])
+        let stack = NSStackView(views: [heading, pagePicker, generalPage, statisticsPage, exclusionsPage.view])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -301,7 +313,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         refresh()
     }
 
-    /// 0 General, 1 Statistics.
+    /// The Exclusions page shows made-up words (for a picture), never the person's own.
+    func showSampleExclusions() { exclusionsPage.showSample() }
+
+    /// 0 General, 1 Statistics, 2 Exclusions.
     func select(page: Int) {
         pagePicker.selectedSegment = page
         pickPage()
@@ -310,6 +325,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     @objc private func pickPage() {
         generalPage.isHidden = pagePicker.selectedSegment != 0
         statisticsPage.isHidden = pagePicker.selectedSegment != 1
+        exclusionsPage.view.isHidden = pagePicker.selectedSegment != 2
         refresh()
     }
 

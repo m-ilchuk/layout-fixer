@@ -59,13 +59,14 @@ struct Statistics: Codable, Equatable {
     init(since: Date) { self.since = since }
 
     mutating func record(_ kind: Kind, words: Int, at date: Date, calendar: Calendar = Statistics.localCalendar) {
-        guard words > 0 else { return }
+        guard words != 0 else { return }
         let key = Self.dayKey(date, calendar: calendar)
         var counts = days[key] ?? Counts()
+        // Negative takes back what was counted (an undo taken back), never below 0.
         switch kind {
-        case .autoFixed: counts.autoFixed += words
-        case .converted: counts.converted += words
-        case .undone: counts.undone += words
+        case .autoFixed: counts.autoFixed = max(0, counts.autoFixed + words)
+        case .converted: counts.converted = max(0, counts.converted + words)
+        case .undone: counts.undone = max(0, counts.undone + words)
         }
         days[key] = counts
     }

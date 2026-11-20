@@ -48,6 +48,9 @@ final class Fixer {
     var currentLayoutID: String? { session.currentLayoutID }
     /// Words changed per day (the window's Statistics): counts only, never text.
     private(set) var statistics = Statistics.load(from: .standard, now: Date())
+    /// Words fix-while-typing leaves as typed (the window's Exclusions): the person's words, kept only in the
+    /// app's preferences.
+    private(set) var exclusions = Exclusions.load(from: .standard, now: Date())
 
     init() {
         session.autoFix = UserDefaults.standard.bool(forKey: "autoFix")
@@ -57,8 +60,11 @@ final class Fixer {
             case .autoFixed(let words): self.count(.autoFixed, words: words)
             case .converted(let words): self.count(.converted, words: words)
             case .undone(let typed, _): self.count(.undone, words: typed.count)
+            case .restored(let typed, _): self.count(.undone, words: -typed.count)
             }
+            self.learn(from: event)
         }
+        session.isExcluded = { [unowned self] word, language in self.exclusions.contains(word, language: language) }
         // Counting starts at the first launch of a version that counts, not at each launch.
         if UserDefaults.standard.data(forKey: Statistics.defaultsKey) == nil { statistics.save(to: .standard) }
     }
@@ -66,6 +72,36 @@ final class Fixer {
     func resetStatistics() {
         statistics.reset(now: Date())
         statistics.save(to: .standard)
+    }
+
+    /// An undone fix teaches: the 3rd undo of the same word puts it on the list.
+    private func learn(from event: TypingSession.Event) {
+        switch event {
+        case .undone, .restored: break
+        case .autoFixed, .converted: return
+        }
+        let learned = exclusions.learn(from: event, layouts: layouts, at: Date())
+        exclusions.save(to: .standard)
+        guard let word = learned else { return }
+        log.notice("a word whose fix was undone 3 times is now on the exclusions list")
+        Flash.shared.say("\(word): won't fix again", after: Flash.visibleSeconds)
+    }
+
+    func removeExclusions(_ entries: [Exclusions.Entry]) {
+        for entry in entries { exclusions.remove(entry.word, language: entry.language) }
+        exclusions.save(to: .standard)
+    }
+
+    /// Adds a word the person typed in the window. Returns why it can't be added, or nil.
+    func addExclusion(_ text: String) -> String? {
+        let word = text.trimmingCharacters(in: .whitespaces)
+        guard !word.isEmpty else { return "Type the word as you type it, for example csv." }
+        guard !word.contains(where: \.isWhitespace) else { return "Add one word at a time." }
+        guard let language = Converter.typedLayout(of: word, layouts: layouts, currentID: currentLayoutID)?.language
+        else { return "None of your keyboard layouts types \(word)." }
+        exclusions.add(word, language: language, at: Date())
+        exclusions.save(to: .standard)
+        return nil
     }
 
     private func count(_ kind: Statistics.Kind, words: Int) {
@@ -516,7 +552,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      update: { [unowned self] in self.updateFromWindow() },
                                                      exportLog: { [unowned self] in self.exportDebugLog() },
                                                      statistics: { fixer.statistics.summary(now: Date()) },
-                                                     resetStatistics: { fixer.resetStatistics() })
+                                                     resetStatistics: { fixer.resetStatistics() },
+                                                     exclusions: ExclusionsPage.Model(
+                                                        list: { fixer.exclusions.excluded },
+                                                        otherReading: { Exclusions.otherReading(of: $0, layouts: fixer.layouts) },
+                                                        remove: { fixer.removeExclusions($0) },
+                                                        add: { fixer.addExclusion($0) }))
 
     /// Every on/off setting, in the order the window shows them (the quick menu has only Enabled).
     private lazy var settings: [Setting] = [
@@ -578,6 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func settingsSnapshot(to url: URL) throws {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        settingsWindow.showSampleExclusions()
         settingsWindow.select(page: snapshotPage)
         try settingsWindow.snapshot(to: url)
     }
@@ -815,8 +857,8 @@ if let flag = CommandLine.arguments.firstIndex(of: "--settings-snapshot"), flag 
         delegate.snapshotProgress = UpdateProgress.State(fraction: fraction, step: "Compiling for Apple silicon and Intel…")
     }
     if let index = CommandLine.arguments.firstIndex(of: "--page"), index + 1 < CommandLine.arguments.count,
-       CommandLine.arguments[index + 1] == "statistics" {
-        delegate.snapshotPage = 1
+       let page = ["general", "statistics", "exclusions"].firstIndex(of: CommandLine.arguments[index + 1]) {
+        delegate.snapshotPage = page
     }
     do { try delegate.settingsSnapshot(to: URL(fileURLWithPath: CommandLine.arguments[flag + 1])) } catch {
         print("could not write the snapshot: \(error.localizedDescription)")

@@ -14,6 +14,10 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 - Undoing an automatic fix is understood: right ⌥ on the word just fixed, ⌘Z, or erasing it (⌫ or ⌥⌫) and typing
   the same keys again on the layout you meant. The word then stays as you typed it, and the next fix in the same
   line no longer takes it along.
+- **Exclusions** in the window: words fix-while-typing leaves as you typed them. Undo the fix of the same word 3
+  times (`csv` turning into `сім`) and it's added for good, with a short "won't fix again" under the cursor; add
+  words yourself, or remove one to let it be fixed again. Tapping right ⌥ twice (undo, then back) doesn't count.
+  The words stay on this Mac, in Layout Fixer's settings; one undone fewer than 3 times is forgotten after 30 days.
 
 ## 0.2.9 — 2026-11-18
 

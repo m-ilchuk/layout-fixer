@@ -76,6 +76,7 @@ enum AutoFix {
         case notAWordThere = "it would not look like a word on the other layout"
         case realWordHere = "it reads as a real word where it was typed"
         case notAWordOnOtherLayout = "it isn't a word on the other layout either"
+        case excluded = "it's on your exclusions list"
     }
 
     enum Decision {
@@ -85,24 +86,32 @@ enum AutoFix {
         case skip(Skip)
     }
 
+    /// Whether a word, as typed on a layout of the given language, is one the person wants left as typed.
+    typealias IsExcluded = (_ word: String, _ language: String) -> Bool
+    static let noExclusions: IsExcluded = { _, _ in false }
+
     /// The range of `buffer` to retype on `target`, or nil to leave it. `buffer` ends with the finished word.
-    static func fix(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller())
-        -> (range: Range<Int>, target: KeyLayout)? {
-        if case .fix(let range, let target) = decide(buffer: buffer, layouts: layouts, speller: speller) {
+    static func fix(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller(),
+                    isExcluded: IsExcluded = noExclusions) -> (range: Range<Int>, target: KeyLayout)? {
+        if case .fix(let range, let target) = decide(buffer: buffer, layouts: layouts, speller: speller,
+                                                     isExcluded: isExcluded) {
             return (range, target)
         }
         return nil
     }
 
-    static func decide(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller()) -> Decision {
+    static func decide(buffer: [Typed], layouts: LayoutSet, speller: Speller = SystemSpeller(),
+                       isExcluded: IsExcluded = noExclusions) -> Decision {
         let words = wordRanges(in: buffer)
         guard let last = words.last, last.upperBound == buffer.count else { return .skip(.noWord) }
         guard let id = buffer[last].first?.layoutID, buffer[last].allSatisfy({ $0.layoutID == id })
         else { return .skip(.mixedLayouts) }
         guard let (source, target) = layoutsOf(buffer[last], layouts: layouts) else { return .skip(.noOtherLayout) }
         guard buffer[last].count >= minimumLength else { return .skip(.tooShort) }
-        if let reason = skipReason(buffer[last], from: source, to: target, speller: speller) {
-            if let run = shortWordsToFix(before: words.dropLast(), in: buffer, layouts: layouts, speller: speller) {
+        let excluded = isExcluded(text(of: buffer[last]), source.language)
+        if let reason = excluded ? .excluded : skipReason(buffer[last], from: source, to: target, speller: speller) {
+            if let run = shortWordsToFix(before: words.dropLast(), in: buffer, layouts: layouts, speller: speller,
+                                         isExcluded: isExcluded) {
                 return .fixShortWords(range: run.range, target: run.target)
             }
             return .skip(reason)
@@ -118,6 +127,7 @@ enum AutoFix {
         for word in words.dropLast().reversed() where canJudgeEarlierWords {
             guard let (wordSource, _) = layoutsOf(buffer[word], layouts: layouts), wordSource.id == source.id
             else { break }
+            if isExcluded(text(of: buffer[word]), source.language) { break }
             if buffer[word].count < minimumLength {
                 let typed = buffer[word].map(\.text).joined()
                 let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
@@ -173,7 +183,8 @@ enum AutoFix {
     /// two or more of them, or one at the start of what was typed ("Z yf call" → "Я на call"). A lone short word
     /// mid-text stays (an "f" or "e" in a technical message).
     private static func shortWordsToFix(before words: ArraySlice<Range<Int>>, in buffer: [Typed], layouts: LayoutSet,
-                                        speller: Speller) -> (range: Range<Int>, target: KeyLayout)? {
+                                        speller: Speller, isExcluded: IsExcluded)
+        -> (range: Range<Int>, target: KeyLayout)? {
         var run: [Range<Int>] = []
         for word in words.reversed() {
             guard buffer[word].count < minimumLength else { break }
@@ -188,7 +199,7 @@ enum AutoFix {
         for word in run {
             let typed = buffer[word].map(\.text).joined()
             let fixed = Converter.retype(buffer[word], on: target).map(\.text).joined()
-            guard !isPunctuationOnly(typed),
+            guard !isPunctuationOnly(typed), !isExcluded(typed, source.language),
                   !readsAsShortWord(typed, language: source.language, speller: speller),
                   readsAsShortWord(fixed, language: target.language, speller: speller)
             else { return nil }
@@ -279,6 +290,8 @@ enum AutoFix {
             + speller.guesses(for: word, language: language).prefix(guessesConsidered)
         return candidates.contains { editDistance(word.lowercased(), $0.lowercased()) <= limit }
     }
+
+    private static func text(of word: ArraySlice<Typed>) -> String { word.map(\.text).joined() }
 
     /// The words of the buffer (runs between spaces), as index ranges.
     static func wordRanges(in buffer: [Typed]) -> [Range<Int>] {

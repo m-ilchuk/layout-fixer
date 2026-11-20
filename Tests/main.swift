@@ -393,6 +393,7 @@ func eventLog(_ mac: SimulatedMac) -> () -> String {
         case .autoFixed(let words): events.append("fixed \(words)")
         case .converted(let words): events.append("converted \(words)")
         case .undone(let typed, _): events.append("undone \(typed.joined(separator: " "))")
+        case .restored(let typed, _): events.append("restored \(typed.joined(separator: " "))")
         }
     }
     return { events.joined(separator: ", ") }
@@ -496,11 +497,11 @@ undoChain("right ⌥ right after a fix undoes it", { mac in
     mac.type([("привіт", ukrainian)])
     mac.tapRightOption()
 }, screen: "ghbdsn ", events: "fixed 1, undone ghbdsn")
-undoChain("right ⌥ twice: back to the fix, counted once", { mac in
+undoChain("right ⌥ twice: back to the fix, the undo taken back", { mac in
     mac.type([("привіт", ukrainian)])
     mac.tapRightOption()
     mac.tapRightOption()
-}, screen: "привіт ", events: "fixed 1, undone ghbdsn")
+}, screen: "привіт ", events: "fixed 1, undone ghbdsn, restored ghbdsn")
 undoChain("an undone word isn't taken along by the next fix", { mac in
     mac.type([("привіт", ukrainian)])
     mac.tapRightOption()
@@ -543,6 +544,131 @@ undoChain("⌫ over the fix, then another word: no undo", { mac in
     mac.backspace(7)
     mac.type([("світ", ukrainian)])
 }, screen: "світ ", events: "fixed 1")
+
+// Exclusions: learned from undos (3 of the same word), or added; per word as typed and its layout's language.
+let day0 = Date(timeIntervalSince1970: 1_800_000_000)
+func days(_ n: Double) -> Date { day0.addingTimeInterval(n * 24 * 3600) }
+var learned = Exclusions()
+check("exclusions: 1st undo counts", String(learned.noteUndo("csv", language: "en", at: days(0))), "false")
+check("exclusions: 2nd undo counts", String(learned.noteUndo("CSV,", language: "en", at: days(1))), "false")
+check("exclusions: not excluded before the 3rd", String(learned.contains("csv", language: "en")), "false")
+check("exclusions: 3rd undo makes it one", String(learned.noteUndo("csv", language: "en", at: days(2))), "true")
+check("exclusions: case and edge punctuation don't matter", String(learned.contains("Csv.", language: "en")), "true")
+check("exclusions: per language", String(learned.contains("csv", language: "uk")), "false")
+learned.takeBackUndo("csv", language: "en")
+check("exclusions: an undo taken back unlearns it", String(learned.contains("csv", language: "en")), "false")
+learned.noteUndo("csv", language: "en", at: days(3))
+learned.remove("csv", language: "en")
+learned.noteUndo("csv", language: "en", at: days(4))
+check("exclusions: removing it starts the count over", "\(learned.contains("csv", language: "en")) \(learned.entries.first?.undos ?? 0)", "false 1")
+learned.noteUndo("ltd", language: "en", at: days(5))
+learned.noteUndo("ltd", language: "en", at: days(40))
+check("exclusions: undos over 30 days apart start over", String(learned.entries.first { $0.word == "ltd" }?.undos ?? 0), "1")
+learned.forgetOld(now: days(80))
+check("exclusions: words counted long ago are forgotten", String(learned.entries.count), "0")
+learned.add("Jira", language: "uk", at: days(80))
+check("exclusions: added by hand", "\(learned.contains("jira", language: "uk")) \(learned.excluded.first?.origin.rawValue ?? "")", "true added")
+for n in 0..<(Exclusions.maxCounted + 5) { learned.noteUndo("w\(n)", language: "en", at: days(80 + Double(n) / 1000)) }
+check("exclusions: at most 200 words being counted, the oldest dropped",
+      "\(learned.entries.filter { !$0.isExcluded }.count) \(learned.entries.contains { $0.word == "w0" })", "200 false")
+let exclusionDefaults = UserDefaults(suiteName: "layout-fixer-tests-exclusions-\(ProcessInfo.processInfo.processIdentifier)")!
+learned.save(to: exclusionDefaults)
+check("exclusions: saved and loaded back", String(Exclusions.load(from: exclusionDefaults, now: days(81)) == learned), "true")
+check("exclusions: loading forgets words counted long ago",
+      String(Exclusions.load(from: exclusionDefaults, now: days(200)).entries.count), "1")
+exclusionDefaults.set(Data("nope".utf8), forKey: Exclusions.defaultsKey)
+check("exclusions: unreadable ones start empty and are kept aside",
+      "\(Exclusions.load(from: exclusionDefaults, now: days(81)).entries.count) "
+        + "\(exclusionDefaults.data(forKey: Exclusions.defaultsKey + ".unreadable") != nil)", "0 true")
+exclusionDefaults.removePersistentDomain(forName: "layout-fixer-tests-exclusions-\(ProcessInfo.processInfo.processIdentifier)")
+
+var shown = Exclusions()
+shown.add("csv", language: "en", at: day0)
+shown.add("сім", language: "uk", at: day0)
+check("exclusions: what they're not changed to",
+      shown.excluded.map { Exclusions.otherReading(of: $0, layouts: ukrainianSet) ?? "—" }.sorted().joined(separator: " "), "csv сім")
+var ukrainianOnly = Exclusions()
+ukrainianOnly.add("сім", language: "uk", at: day0)
+check("exclusions: no layout on now for its language", Exclusions.otherReading(of: ukrainianOnly.excluded[0], layouts: greekSet), "nil")
+
+// Fix-while-typing leaves excluded words as typed, and stops at them when it looks back.
+func autoExcluding(_ excluded: [String: String], _ text: String, on layout: KeyLayout) -> String? {
+    let buffer = typed(text, on: layout)
+    let isExcluded: AutoFix.IsExcluded = { word, language in excluded[Exclusions.normalized(word)] == language }
+    switch AutoFix.decide(buffer: buffer, layouts: ukrainianSet, isExcluded: isExcluded) {
+    case .fix(let range, let target), .fixShortWords(let range, let target):
+        var out = buffer
+        out.replaceSubrange(range, with: Converter.retype(buffer[range], on: target))
+        return out.map(\.text).joined()
+    case .skip(let reason):
+        return "\(reason)"
+    }
+}
+check("excluded: the finished word stays", autoExcluding(["ghbdsn": "en"], "ghbdsn", on: english), "excluded")
+check("excluded: typed with a comma, still", autoExcluding(["ghbdsn": "en"], "Ghbdsn,", on: english), "excluded")
+check("excluded: only on the layout it's typed on", autoExcluding(["ghbdsn": "uk"], "ghbdsn", on: english), "привіт")
+check("excluded: the look-back stops at it", autoExcluding(["ghbdsn": "en"], "ghbdsn cdsn", on: english), "ghbdsn світ")
+check("excluded: a short word stops the look-back", autoExcluding(["z": "en"], "z ghjcnj", on: english), "z просто")
+check("excluded: between two wrong-layout words, it stays",
+      autoExcluding(["ghbdsn": "en"], "ltym ghbdsn cdsn", on: english), "ltym ghbdsn світ")
+check("excluded: a short word before an excluded one still goes", autoExcluding(["ghbdsn": "en"], "Z ghbdsn", on: english), "Я ghbdsn")
+
+// What teaches: undos of one-word fixes only, in a chain.
+func learnedFrom(_ steps: (SimulatedMac) -> Void, startOn: KeyLayout = english) -> String {
+    let mac = SimulatedMac(ukrainianSet, startOn: startOn)
+    var list = Exclusions()
+    var fixes: [String] = []
+    mac.session.onEvent = { event in
+        if case .autoFixed(let words) = event { fixes.append("fixed \(words)") }
+        for _ in 0..<3 { _ = list.learn(from: event, layouts: ukrainianSet, at: day0) }  // as if undone 3 times
+    }
+    steps(mac)
+    return fixes.joined(separator: ", ") + " | " + list.excluded.map { "\($0.language):\($0.word)" }.joined(separator: " ")
+}
+check("learn: right ⌥ on the fixed word", learnedFrom { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.tapRightOption()
+}, "fixed 1 | en:ghbdsn")
+check("learn: erased and typed again", learnedFrom { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.backspace(7)
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("ghbdsn", english)])
+}, "fixed 1 | en:ghbdsn")
+check("learn: ⌘Z of one word", learnedFrom { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.commandZ(before: "ghbdsn ")
+}, "fixed 1 | en:ghbdsn")
+check("learn: ⌘Z of a fix of several words teaches nothing", learnedFrom({ mac in
+    mac.type([("hey", english), ("everyone", english)])
+    mac.commandZ(before: "")
+}, startOn: ukrainian), "fixed 2 | ")
+check("learn: ⌘Z of fixed short words teaches nothing", learnedFrom({ mac in
+    mac.type([("I", english), ("am", english)])
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("just", english)])
+    mac.commandZ(before: "")
+}, startOn: ukrainian), "fixed 2 | ")
+check("learn: an undo taken back teaches nothing", learnedFrom { mac in
+    mac.type([("привіт", ukrainian)])
+    mac.tapRightOption()
+    mac.tapRightOption()
+}, "fixed 1 | ")
+
+// In a chain: once excluded, the word stays.
+for condition in chainConditions {
+    let mac = condition.mac(ukrainianSet, startOn: english)
+    var list = Exclusions()
+    let events = eventLog(mac)
+    mac.session.isExcluded = { list.contains($0, language: $1) }
+    mac.type([("привіт", ukrainian)])
+    list.noteUndo("ghbdsn", language: "en", at: day0)
+    list.noteUndo("ghbdsn", language: "en", at: day0)
+    list.noteUndo("ghbdsn", language: "en", at: day0)
+    mac.personSwitches(to: english, notice: true)
+    mac.type([("ghbdsn", english)])
+    check("excluded, \(condition.name): the 4th time it stays", "\(mac.screen)| \(events())", "привіт ghbdsn | fixed 1")
+}
 
 // Switching yourself, macOS late to tell, then a word on the wrong layout: it's recorded half on each layout.
 for condition in chainConditions {
@@ -741,6 +867,12 @@ check("stats: today starts at midnight", counts(summary.today), "2/1/1")
 check("stats: 7 days are today and the 6 before", counts(summary.lastSevenDays), "10/1/1")
 check("stats: all time", counts(summary.allTime), "14/1/1")
 check("stats: kept rate", summary.lastSevenDays.keptRate.map { String(format: "%.2f", $0) }, "0.90")
+var takenBack = Statistics(since: kyivDate("2026-11-21 10:00"))
+takenBack.record(.undone, words: 1, at: kyivDate("2026-11-21 10:00"), calendar: kyiv)
+takenBack.record(.undone, words: -1, at: kyivDate("2026-11-21 10:00"), calendar: kyiv)
+takenBack.record(.undone, words: -1, at: kyivDate("2026-11-21 10:00"), calendar: kyiv)
+check("stats: an undo taken back is uncounted, never below 0",
+      counts(takenBack.summary(now: kyivDate("2026-11-21 10:00"), calendar: kyiv).today), "0/0/0")
 check("stats: no kept rate before a fix", Statistics.Counts().keptRate.map { "\($0)" }, "nil")
 let statsDefaults = UserDefaults(suiteName: "layout-fixer-tests-\(ProcessInfo.processInfo.processIdentifier)")!
 stats.save(to: statsDefaults)
