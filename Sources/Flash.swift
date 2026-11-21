@@ -21,8 +21,16 @@ final class Flash {
     /// What the bubble holds: the layout's symbol, or a short message.
     private enum Content { case symbol(String), text(String) }
 
-    func show(from source: KeyLayout?, to target: KeyLayout) {
-        guard enabled else { return }
+    /// From macOS 14, macOS shows its own indicator under the cursor whenever the layout switches, the app's
+    /// switch included: then this one would be a second copy next to it.
+    static var systemShowsIndicator: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 14, minorVersion: 0, patchVersion: 0))
+    }
+
+    /// After a fix. `layoutSwitched`: the fix switched the keyboard too (only the short words before a word were
+    /// fixed when it didn't); then, where macOS shows its own indicator, nothing more is shown.
+    func show(from source: KeyLayout?, to target: KeyLayout, layoutSwitched: Bool) {
+        guard enabled, !(layoutSwitched && Flash.systemShowsIndicator) else { return }
         present(.symbol(LayoutSymbol.name(forLanguage: target.language)))
     }
 

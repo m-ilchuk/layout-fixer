@@ -317,7 +317,7 @@ final class Fixer {
     private func apply(_ edit: TypingSession.Edit) {
         replay(keys: edit.erase + edit.text.count, { cancel in Fixer.replace(edit, cancel: cancel) }, then: {
             if edit.switches { edit.target.select() }
-            Flash.shared.show(from: edit.source, to: edit.target)
+            Flash.shared.show(from: edit.source, to: edit.target, layoutSwitched: edit.switches)
         })
     }
 
@@ -410,7 +410,7 @@ final class Fixer {
             self.reset("converting a selection")
             target.select()
             self.session.appSwitched(to: target.id)
-            Flash.shared.show(from: source, to: target)
+            Flash.shared.show(from: source, to: target, layoutSwitched: true)
             log.notice("selection converted: \(converted.count) chars → \(target.id, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 // Something copied meanwhile (by you, or another app) stays: only our own text is taken back.

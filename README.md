@@ -44,8 +44,8 @@ Optional: in the same window, turn on **Open at login** to start it with your Ma
 | **Text selected** | Converts it to the other layout; it stays selected | Puts back exactly what was there |
 | **Nothing selected** | Converts the last word you typed | Flips it back |
 
-The keyboard layout switches with it, and the new layout's symbol (`A`, `УК`) shows under the text cursor for a moment,
-like macOS's own indicator.
+The keyboard layout switches with it, and macOS's own indicator shows the new layout under the text cursor for a
+moment (on macOS 13, which has none, Layout Fixer shows one that looks the same).
 
 Try it (with Ukrainian): switch to English, type `ghbdsn`, tap right ⌥. You get `привіт` and the keyboard is
 now Ukrainian. Tap again and it's back to `ghbdsn`.
@@ -64,8 +64,9 @@ In the window:
 - **Fix automatically while typing (beta)**, off by default: when you finish a word with Space and it only makes
   sense on the other layout (checked with the macOS dictionaries, typos allowed), it is retyped without a tap,
   together with the words before it typed on the same wrong layout: `рун умукщту рщц` → `hey everone how`.
-- **Show a flash when fixing**: the new layout's symbol (`A`, `УК`) in a small bubble under the text cursor, like
-  macOS's own indicator when you switch layouts.
+- **Show a flash when fixing**: the layout's symbol (`A`, `УК`) in a small bubble under the text cursor when a fix
+  doesn't switch the layout (then macOS shows nothing), and on macOS 13 always. When the layout switches, macOS
+  14 and newer show their own indicator, so Layout Fixer adds none.
 - **Open at login**.
 - **Show icon in menu bar**: macOS already shows the current layout, so the icon can go; the window is always
   there when you open Layout Fixer again. While it waits for Accessibility it shows ⚠ even when hidden.
