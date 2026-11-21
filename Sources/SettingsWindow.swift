@@ -196,7 +196,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         let usage = NSTextField(wrappingLabelWithString:
             "Tap the right ⌥ key on its own: it converts the selected text, or the last word you typed, "
-            + "to the other layout and switches the keyboard. Tap again to convert it back.")
+            + "to the other layout and switches the keyboard. Tap again to convert it back. Works in any app: "
+            + "Mail, Notes and other Mac apps, Slack, Telegram, browsers and code editors.")
         pairLabel.textColor = .secondaryLabelColor
 
         checkboxes = settings.enumerated().map { index, setting in

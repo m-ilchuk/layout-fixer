@@ -8,9 +8,10 @@ key: Layout Fixer retypes it on the right layout and switches the keyboard for y
 `ghbdsn` → `привіт` · `руддщ` → `hello` · works between English and your language (Ukrainian, Polish, Greek,
 Bulgarian, Hebrew, German, …).
 
-A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and open source.
+Works in any app: Mail, Notes, Pages and other Mac apps, Slack, Telegram, browsers, code editors. A small menu bar app
+for macOS 13 or newer, on Apple silicon or Intel. Free and open source.
 
-<img src="docs/demo.gif" width="760" alt="Layout Fixer at work: in a chat, руддщ typed on the Ukrainian layout becomes hello on Space and the keyboard switches to English; in an email, Lj,hbq typed on English becomes Добрий; in a note, a selected line typed on the wrong layout converts when the right Option key is tapped">
+<img src="docs/demo.gif" width="760" alt="Layout Fixer at work: in a chat, руддщ typed on the Ukrainian layout becomes hello on Space and the keyboard switches to English; in an email, a Ukrainian line with English words is typed without ever switching layouts and each word lands on the right one; in a note, a selected line typed on the wrong layout converts when the right Option key is tapped">
 
 ## Install
 

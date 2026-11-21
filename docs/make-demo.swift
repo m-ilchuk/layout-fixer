@@ -1,5 +1,6 @@
-// Draws the README demo (docs/demo.gif): a wrong-layout word fixed on Space in a chat and in an email, a selected
-// sentence converted with the right ⌥ key, and an end card. Run from the repo root: swift docs/make-demo.swift
+// Draws the README demo (docs/demo.gif): a wrong-layout word fixed on Space in a chat, a Ukrainian line with English
+// words typed in an email without ever switching layouts, a selected sentence converted with the right ⌥ key, and
+// an end card. Run from the repo root: swift docs/make-demo.swift
 import AppKit
 import ImageIO
 
@@ -10,9 +11,14 @@ import ImageIO
 let chatWrong = "руддщ"
 let chatRight = "hello"
 let chatRest = "Alex, 3 pm works for me"
-let mailWrong = "Lj,hbq"
-let mailRight = "Добрий"
-let mailRest = "день, надсилаю звіт."
+// A Ukrainian line with English words, typed from start to end without touching the layout switch. Each step is
+// what the app's own TypingSession does (fix-while-typing, starting on Ukrainian): the text typed so far, the word
+// on screen when Space is pressed, what it becomes, and the layout it switches to.
+let mixedSteps: [(typed: String, wrong: String, right: String, layout: String)] = [
+    ("Код уже в ", "ьфштб", "main,", "ABC"),
+    ("", "vj;yf", "можна", "УК"),
+    ("робити ", "кудуфіую", "release.", "ABC"),
+]
 // The keys of "Зустріч завтра о 10" pressed on ABC (from Converter.convert); no punctuation, whose keys differ.
 let notesWrong = "Pecnhsx pfdnhf j 10"
 let notesRight = "Зустріч завтра о 10"
@@ -159,6 +165,35 @@ func fixOnSpace(wrong: String, right: String, badge: String, indicator: String) 
     wait(0.44)
 }
 
+/// Space after a word typed on the wrong layout in the middle of a line: only that word is marked and retyped.
+func fixInLine(wrong: String, right: String, badge: String, indicator: String) {
+    let text = current.runs.map(\.text).joined()
+    let before = String(text.dropLast(wrong.count))
+    current.runs = [Run(text: before, mark: .plain), Run(text: wrong, mark: .wrong)]
+    current.caretReset = now
+    commit()
+    wait(0.3)
+    current.runs = [Run(text: before, mark: .plain), Run(text: right, mark: .fixed), Run(text: " ", mark: .plain)]
+    current.indicator = indicator
+    current.fixTick = now
+    current.badge = badge
+    current.badgeAnchor = before + right + " "
+    current.caretReset = now
+    commit()
+    wait(0.5)
+}
+
+func typeMixedLine() {
+    startScene(.mail, indicator: "УК")
+    wait(0.5)
+    for step in mixedSteps {
+        type(step.typed + step.wrong, secondsPerKey: 0.075)
+        wait(0.12)
+        fixInLine(wrong: step.wrong, right: step.right, badge: step.layout == "ABC" ? "A" : "УК", indicator: step.layout)
+    }
+    wait(1.3)
+}
+
 func typeAndFix(scene: Scene, from: String, to: String, wrong: String, right: String, rest: String, badge: String) {
     startScene(scene, indicator: from)
     wait(0.6)
@@ -192,14 +227,14 @@ func selectAndTap() {
     current.badge = "УК"
     current.badgeAnchor = ""
     commit()
-    wait(2.2)
+    wait(1.8)
 }
 
 typeAndFix(scene: .chat, from: "УК", to: "ABC", wrong: chatWrong, right: chatRight, rest: chatRest, badge: "A")
-typeAndFix(scene: .mail, from: "ABC", to: "УК", wrong: mailWrong, right: mailRight, rest: mailRest, badge: "УК")
+typeMixedLine()
 selectAndTap()
 startScene(.end, indicator: "")
-wait(3.2)
+wait(2.6)
 let totalTicks = now
 
 func state(of step: Step, at tick: Int) -> FrameState {
@@ -410,14 +445,14 @@ func drawMail(_ state: FrameState) {
     draw("olena@example.com", x: valueLeft, baseline: top + 28, font: labelFont, color: inkColor)
     line(y: top + 42, from: left, to: windowFrame.maxX - 24)
     draw("Subject:", x: left, baseline: top + 68, font: labelFont, color: mutedColor)
-    draw("Звіт за тиждень", x: valueLeft, baseline: top + 68, font: labelFont, color: inkColor)
+    draw("Реліз", x: valueLeft, baseline: top + 68, font: labelFont, color: inkColor)
     line(y: top + 82, from: left, to: windowFrame.maxX - 24)
     drawField(state: state, x: left, baseline: top + 124, font: typedFont)
     let send = NSRect(x: left, y: windowFrame.maxY - 54, width: 84, height: 32)
     fill(send, blue, radius: 8)
     draw("Send", x: send.midX, baseline: send.midY + 5.5, font: .systemFont(ofSize: 15, weight: .semibold),
          color: .white, align: .center)
-    drawCaption("Works both ways.")
+    drawCaption("Ukrainian with English words? Never switch by hand.")
 }
 
 func drawOptionKey(pressed: Bool) {
@@ -459,7 +494,7 @@ func drawEndCard(_ state: FrameState, icon: NSImage?) {
          color: inkColor.withAlphaComponent(alpha), align: .center)
     draw("Typed on the wrong keyboard layout? Fixed as you type.", x: center, baseline: 294,
          font: .systemFont(ofSize: 19), color: inkColor.withAlphaComponent(alpha), align: .center)
-    draw("Free · open source · macOS", x: center, baseline: 330, font: .systemFont(ofSize: 15, weight: .medium),
+    draw("Works in any app: Mail, Notes, Slack, browsers · free · open source", x: center, baseline: 330, font: .systemFont(ofSize: 15, weight: .medium),
          color: mutedColor.withAlphaComponent(alpha), align: .center)
 }
 
