@@ -8,6 +8,9 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 ## Unreleased
 
 ### Changed
+- The Exclusions page lists every word whose fix you undid, with its status: on (learned after 3 undos, or turned on
+  by you) or "1 of 3 undos" / "2 of 3 undos". Select a word still counting and click **Turn On** to stop it being
+  fixed right away.
 - No more second badge next to macOS's own layout indicator: when a fix switches the layout, macOS 14 and newer
   already show the new layout under the cursor, so Layout Fixer's dark `UK → EN` badge is gone. Where macOS shows
   nothing (a fix that doesn't switch the layout, or macOS 13), Layout Fixer shows a bubble that looks like it.

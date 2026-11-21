@@ -79,7 +79,8 @@ you undid right after, for today, the last 7 days and all time, and the share of
 **Exclusions**: words fix-while-typing leaves as you typed them. Undo a fix right after it (tap right ⌥, press ⌘Z,
 or erase the word and type it again on the layout you meant) and that word stays this time; undo the same word 3
 times (`csv`, which would turn into `сім`) and it's added here for good. **Add…** a word yourself, or **Remove**
-one to let it be fixed again. Right ⌥ still converts them.
+one to let it be fixed again. Words undone once or twice are listed too, with how many undos they have; select one
+and click **Turn On** to stop it being fixed without waiting for the 3rd. Right ⌥ still converts them all.
 
 ## Layouts
 

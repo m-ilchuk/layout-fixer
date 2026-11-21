@@ -99,6 +99,12 @@ final class Fixer {
         Flash.shared.say("\(word): won't fix again", after: Flash.visibleSeconds)
     }
 
+    /// Words still being counted, turned on now from the window.
+    func turnOnExclusions(_ entries: [Exclusions.Entry]) {
+        for entry in entries { exclusions.turnOn(entry.word, language: entry.language, at: Date()) }
+        exclusions.save(to: .standard)
+    }
+
     func removeExclusions(_ entries: [Exclusions.Entry]) {
         for entry in entries { exclusions.remove(entry.word, language: entry.language) }
         exclusions.save(to: .standard)
@@ -805,9 +811,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                      statistics: { fixer.statistics.summary(now: Date()) },
                                                      resetStatistics: { fixer.resetStatistics() },
                                                      exclusions: ExclusionsPage.Model(
-                                                        list: { fixer.exclusions.excluded },
+                                                        list: { fixer.exclusions.listed },
                                                         otherReading: { Exclusions.otherReading(of: $0, layouts: fixer.layouts) },
                                                         remove: { fixer.removeExclusions($0) },
+                                                        turnOn: { fixer.turnOnExclusions($0) },
                                                         add: { fixer.addExclusion($0) }))
 
     /// Every on/off setting, in the order the window shows them (the quick menu has only Enabled).

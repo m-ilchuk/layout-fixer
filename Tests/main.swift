@@ -567,6 +567,17 @@ check("exclusions: undos over 30 days apart start over", String(learned.entries.
 learned.forgetOld(now: days(80))
 check("exclusions: words counted long ago are forgotten", String(learned.entries.count), "0")
 learned.add("Jira", language: "uk", at: days(80))
+var counting = Exclusions()
+counting.noteUndo("csv", language: "en", at: days(0))
+counting.noteUndo("ltd", language: "en", at: days(1))
+counting.noteUndo("ltd", language: "en", at: days(2))
+counting.add("jira", language: "uk", at: days(3))
+check("exclusions: listed, exclusions first, then words being counted, latest first",
+      counting.listed.map { "\($0.word):\($0.isExcluded ? "on" : "\($0.undos)")" }.joined(separator: " "), "jira:on ltd:2 csv:1")
+counting.turnOn("csv", language: "en", at: days(4))
+check("exclusions: a word being counted turned on by hand",
+      "\(counting.contains("csv", language: "en")) \(counting.excluded.first?.word ?? "") \(counting.excluded.first?.origin.rawValue ?? "")",
+      "true csv added")
 check("exclusions: added by hand", "\(learned.contains("jira", language: "uk")) \(learned.excluded.first?.origin.rawValue ?? "")", "true added")
 for n in 0..<(Exclusions.maxCounted + 5) { learned.noteUndo("w\(n)", language: "en", at: days(80 + Double(n) / 1000)) }
 check("exclusions: at most 200 words being counted, the oldest dropped",

@@ -1,12 +1,15 @@
 import AppKit
 
-/// The window's Exclusions page: the words fix-while-typing leaves as typed, learned from undos or added here.
+/// The window's Exclusions page: the words fix-while-typing leaves as typed (learned after 3 undos, or added or
+/// turned on here), and the words whose fix was undone once or twice, counting toward that.
 final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     struct Model {
         let list: () -> [Exclusions.Entry]
         /// What the entry would have been changed to, nil when no layout on now types its language.
         let otherReading: (Exclusions.Entry) -> String?
         let remove: ([Exclusions.Entry]) -> Void
+        /// Words still being counted, turned on now.
+        let turnOn: ([Exclusions.Entry]) -> Void
         /// Returns why the word can't be added, or nil when it was.
         let add: (String) -> String?
     }
@@ -17,6 +20,8 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         Exclusions.Entry(word: "csv", language: "en", origin: .learned, undos: 3, since: Date()),
         Exclusions.Entry(word: "ltd", language: "en", origin: .learned, undos: 3, since: Date()),
         Exclusions.Entry(word: "jira", language: "en", origin: .added, undos: 0, since: Date()),
+        Exclusions.Entry(word: "lol", language: "en", origin: .learned, undos: 2, lastUndo: Date()),
+        Exclusions.Entry(word: "pdf", language: "en", origin: .learned, undos: 1, lastUndo: Date()),
     ]
 
     let view = NSStackView()
@@ -28,17 +33,27 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
     private let scroll = NSScrollView()
     private let emptyLabel = NSTextField(labelWithString: "No exclusions yet.")
     private let removeButton = NSButton(title: "Remove", target: nil, action: nil)
+    private let turnOnButton = NSButton(title: "Turn On", target: nil, action: nil)
 
     private enum Column: String, CaseIterable {
-        case typed = "You type", other = "Not changed to", how = "How", since = "Since"
+        case typed = "You type", other = "Not changed to", status = "Status", date = "Date"
         var width: CGFloat {
             switch self {
-            case .typed: return 80
-            case .other: return 95
-            case .how: return 95
-            case .since: return 90
+            case .typed: return 70
+            case .other: return 100
+            case .status: return 100
+            case .date: return 95
             }
         }
+    }
+
+    private var selectedEntries: [Exclusions.Entry] {
+        table.selectedRowIndexes.compactMap { $0 < shown.count ? shown[$0] : nil }
+    }
+
+    private func updateButtons() {
+        removeButton.isEnabled = !selectedEntries.isEmpty
+        turnOnButton.isEnabled = selectedEntries.contains { !$0.isExcluded }
     }
 
     init(model: Model, width: CGFloat) {
@@ -60,7 +75,7 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         shown = list
         table.reloadData()
         emptyLabel.isHidden = !list.isEmpty
-        removeButton.isEnabled = !table.selectedRowIndexes.isEmpty
+        updateButtons()
     }
 
     private func build() {
@@ -69,8 +84,9 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         view.spacing = 10
 
         let about = NSTextField(wrappingLabelWithString:
-            "Fix while typing leaves these words as you typed them. A word whose fix you undo 3 times (right ⌥, ⌘Z, "
-            + "or erasing it and typing it again) is added here. Right ⌥ still converts them.")
+            "Fix while typing leaves the words that are on as you typed them. Undo a word's fix (right ⌥, ⌘Z, or "
+            + "erasing it and typing it again) and it's listed here; at 3 undos it turns on by itself, or select it "
+            + "and click Turn On. Right ⌥ still converts every word.")
         about.textColor = .secondaryLabelColor
         about.preferredMaxLayoutWidth = width
 
@@ -100,12 +116,16 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         removeButton.action = #selector(removeSelected)
         removeButton.bezelStyle = .rounded
         removeButton.isEnabled = false
-        let buttons = NSStackView(views: [add, removeButton, emptyLabel])
+        turnOnButton.target = self
+        turnOnButton.action = #selector(turnOnSelected)
+        turnOnButton.bezelStyle = .rounded
+        turnOnButton.isEnabled = false
+        let buttons = NSStackView(views: [add, turnOnButton, removeButton, emptyLabel])
         buttons.orientation = .horizontal
         buttons.spacing = 8
 
         let privacy = NSTextField(wrappingLabelWithString:
-            "These words stay on this Mac, in Layout Fixer's settings. A word undone fewer than 3 times is only "
+            "Words that are on stay on this Mac, in Layout Fixer's settings. Words still counting are only "
             + "remembered while Layout Fixer runs (at most 30 days), never written down.")
         privacy.textColor = .secondaryLabelColor
         privacy.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
@@ -125,24 +145,41 @@ final class ExclusionsPage: NSObject, NSTableViewDataSource, NSTableViewDelegate
         switch column {
         case .typed: text = entry.word
         case .other: text = (sampleOnly ? nil : model.otherReading(entry)) ?? sampleReading(entry)
-        case .how: text = entry.origin == .added ? "added by you" : "learned"
-        case .since: text = entry.since?.formatted(date: .numeric, time: .omitted) ?? ""
+        case .status: text = ExclusionsPage.status(of: entry)
+        case .date: text = (entry.since ?? entry.lastUndo)?.formatted(date: .numeric, time: .omitted) ?? ""
         }
         let cell = NSTextField(labelWithString: text)
         cell.lineBreakMode = .byTruncatingTail
-        if column == .other || column == .how || column == .since { cell.textColor = .secondaryLabelColor }
+        switch column {
+        case .typed: cell.textColor = entry.isExcluded ? .labelColor : .secondaryLabelColor
+        case .status: cell.textColor = entry.isExcluded ? .systemGreen : .secondaryLabelColor
+        default: cell.textColor = .secondaryLabelColor
+        }
         return cell
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        removeButton.isEnabled = !table.selectedRowIndexes.isEmpty
+    func tableViewSelectionDidChange(_ notification: Notification) { updateButtons() }
+
+    /// "On, learned", "On, by you", or "2 of 3 undos" for a word still counting.
+    static func status(of entry: Exclusions.Entry) -> String {
+        guard !entry.isExcluded else { return entry.origin == .added ? "On, by you" : "On, learned" }
+        return "\(entry.undos) of \(Exclusions.undosToLearn) undos"
     }
 
     private func sampleReading(_ entry: Exclusions.Entry) -> String {
-        sampleOnly ? ["csv": "сім", "ltd": "дев", "jira": "оштф"][entry.word] ?? "—" : "—"
+        sampleOnly ? ["csv": "сім", "ltd": "дев", "jira": "оштф", "lol": "дщд", "pdf": "зва"][entry.word] ?? "—" : "—"
     }
 
     // MARK: Actions
+
+    @objc private func turnOnSelected() {
+        guard !sampleOnly else { return }
+        let entries = selectedEntries.filter { !$0.isExcluded }
+        guard !entries.isEmpty else { return }
+        model.turnOn(entries)
+        table.deselectAll(nil)
+        refresh()
+    }
 
     @objc private func removeSelected() {
         guard !sampleOnly else { return }

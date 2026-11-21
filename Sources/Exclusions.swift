@@ -46,7 +46,14 @@ struct Exclusions: Codable, Equatable {
         try values.encode(entries.filter(\.isExcluded), forKey: .entries)
     }
 
-    /// The exclusions themselves, newest first (what the window lists).
+    /// What the window lists: the exclusions, newest first, then the words still being counted, most recently
+    /// undone first.
+    var listed: [Entry] {
+        excluded + entries.filter { !$0.isExcluded }
+            .sorted { ($0.lastUndo ?? .distantPast) > ($1.lastUndo ?? .distantPast) }
+    }
+
+    /// The exclusions themselves, newest first.
     var excluded: [Entry] {
         entries.filter(\.isExcluded).sorted { ($0.since ?? .distantPast) > ($1.since ?? .distantPast) }
     }
@@ -121,6 +128,15 @@ struct Exclusions: Codable, Equatable {
         return entry.word.map { char in
             source.strokeForCharacter[char].flatMap { target.character(for: $0) } ?? String(char)
         }.joined()
+    }
+
+    /// A word still being counted, turned on by the person before its 3rd undo.
+    mutating func turnOn(_ word: String, language: String, at now: Date) {
+        guard let index = entries.firstIndex(where: { $0.word == word && $0.language == language }),
+              !entries[index].isExcluded
+        else { return }
+        entries[index].origin = .added
+        entries[index].since = now
     }
 
     mutating func add(_ word: String, language: String, at now: Date) {
