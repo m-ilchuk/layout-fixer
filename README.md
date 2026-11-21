@@ -44,7 +44,8 @@ Optional: in the same window, turn on **Open at login** to start it with your Ma
 | **Text selected** | Converts it to the other layout; it stays selected | Puts back exactly what was there |
 | **Nothing selected** | Converts the last word you typed | Flips it back |
 
-The keyboard layout switches with it, and a small badge such as `UK → EN` shows under the text cursor for a moment.
+The keyboard layout switches with it, and the new layout's symbol (`A`, `УК`) shows under the text cursor for a moment,
+like macOS's own indicator.
 
 Try it (with Ukrainian): switch to English, type `ghbdsn`, tap right ⌥. You get `привіт` and the keyboard is
 now Ukrainian. Tap again and it's back to `ghbdsn`.
