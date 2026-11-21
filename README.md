@@ -63,7 +63,8 @@ In the window:
 - **Fix automatically while typing (beta)**, off by default: when you finish a word with Space and it only makes
   sense on the other layout (checked with the macOS dictionaries, typos allowed), it is retyped without a tap,
   together with the words before it typed on the same wrong layout: `рун умукщту рщц` → `hey everone how`.
-- **Show a flash when fixing**: the `UK → EN` badge.
+- **Show a flash when fixing**: the new layout's symbol (`A`, `УК`) in a small bubble under the text cursor, like
+  macOS's own indicator when you switch layouts.
 - **Open at login**.
 - **Show icon in menu bar**: macOS already shows the current layout, so the icon can go; the window is always
   there when you open Layout Fixer again. While it waits for Accessibility it shows ⚠ even when hidden.

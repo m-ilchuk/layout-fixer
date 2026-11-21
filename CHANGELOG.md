@@ -7,6 +7,10 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Changed
+- The flash after a fix looks like macOS's own layout indicator: the new layout's symbol (`A`, `УК`) in a small
+  bubble under the text cursor, instead of a dark `UK → EN` badge.
+
 ### Fixes
 - Less of a blink in Slack, Claude, browsers and other apps that take fixes as key presses: the word was gone for
   over 150 ms while it was retyped; keys now go about three times faster.

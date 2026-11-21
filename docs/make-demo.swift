@@ -189,14 +189,14 @@ func selectAndTap() {
     current.runs = [Run(text: notesRight, mark: .selected)]
     current.indicator = "УК"
     current.fixTick = now
-    current.badge = "EN → UK"
+    current.badge = "УК"
     current.badgeAnchor = ""
     commit()
     wait(2.2)
 }
 
-typeAndFix(scene: .chat, from: "УК", to: "ABC", wrong: chatWrong, right: chatRight, rest: chatRest, badge: "UK → EN")
-typeAndFix(scene: .mail, from: "ABC", to: "УК", wrong: mailWrong, right: mailRight, rest: mailRest, badge: "EN → UK")
+typeAndFix(scene: .chat, from: "УК", to: "ABC", wrong: chatWrong, right: chatRight, rest: chatRest, badge: "A")
+typeAndFix(scene: .mail, from: "ABC", to: "УК", wrong: mailWrong, right: mailRight, rest: mailRest, badge: "УК")
 selectAndTap()
 startScene(.end, indicator: "")
 wait(3.2)
@@ -347,13 +347,26 @@ func drawField(state: FrameState, x: CGFloat, baseline: CGFloat, font: NSFont) {
         fill(NSRect(x: cursor + 1, y: top + 1, width: 2, height: height - 2), blue)
     }
     guard state.badgeLevel > 0 else { return }
-    let badgeFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    // The app's flash, drawn as it looks: like macOS's own layout indicator, the new layout's symbol (a dark
+    // rounded square with its letters, "A" or "УК") in a small light bubble under the cursor.
+    let badgeFont = NSFont.systemFont(ofSize: 11.5, weight: .bold)
     let alpha = [0, 0.3, 0.65, 1][state.badgeLevel]
-    let size = NSSize(width: width(of: state.badge, badgeFont) + 20, height: 24)
-    let origin = NSPoint(x: x + width(of: state.badgeAnchor, font), y: top + height + 4)
-    fill(NSRect(origin: origin, size: size), badgeColor.withAlphaComponent(0.94 * alpha), radius: 7)
-    draw(state.badge, x: origin.x + 10, baseline: origin.y + 17, font: badgeFont,
-         color: NSColor.white.withAlphaComponent(alpha))
+    let symbolSize = NSSize(width: max(18, ceil(width(of: state.badge, badgeFont)) + 8), height: 18)
+    let padding: CGFloat = 5
+    let size = NSSize(width: symbolSize.width + 2 * padding, height: symbolSize.height + 2 * padding)
+    let origin = NSPoint(x: x + width(of: state.badgeAnchor, font) - 2, y: top + height + 4)
+    NSGraphicsContext.saveGraphicsState()
+    let shadow = NSShadow()
+    shadow.shadowBlurRadius = 6
+    shadow.shadowOffset = NSSize(width: 0, height: -1)
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.22 * alpha)
+    shadow.set()
+    fill(NSRect(origin: origin, size: size), NSColor(white: 0.985, alpha: alpha), radius: 8)
+    NSGraphicsContext.restoreGraphicsState()
+    let symbol = NSRect(origin: NSPoint(x: origin.x + padding, y: origin.y + padding), size: symbolSize)
+    fill(symbol, badgeColor.withAlphaComponent(alpha), radius: 4)
+    draw(state.badge, x: symbol.midX, baseline: symbol.minY + 13.2, font: badgeFont,
+         color: NSColor(white: 0.985, alpha: alpha), align: .center)
 }
 
 func drawAvatar(_ letter: String, color: NSColor, centerX: CGFloat, centerY: CGFloat) {

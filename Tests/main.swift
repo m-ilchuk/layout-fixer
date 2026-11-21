@@ -923,6 +923,11 @@ check("memo: asked once", "\(asked) \(memo.value("uk\u{1}тікет") { 3 })", "
 for n in 0..<Memo<Int>.limit { _ = memo.value("w\(n)") { n } }
 check("memo: forgets everything past the limit", "\(memo.value("uk\u{1}тікет") { 9 })", "9")
 
+// The flash shows a layout the way macOS's own indicator does.
+check("symbol: English", LayoutSymbol.name(forLanguage: english.language), "A")
+check("symbol: Ukrainian", LayoutSymbol.name(forLanguage: ukrainian.language), "УК")
+check("symbol: a language in Latin script", LayoutSymbol.name(forLanguage: "pl"), "PL")
+
 // The updater installs exactly the release it found: its installer and source at the tag, never main.
 check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", repository: "m-ilchuk/layout-fixer"),
       "set -o pipefail; script=$(mktemp) || exit 1; trap 'rm -f \"$script\"' EXIT; "
