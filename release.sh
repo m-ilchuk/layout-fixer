@@ -25,6 +25,8 @@ command -v gh >/dev/null || fail "needs the GitHub CLI (brew install gh, then gh
 
 echo "Testing…"
 ./build.sh --test >/dev/null || fail "tests failed: run ./build.sh --test"
+LAYOUT_FIXER_TEST_OPTIMIZED=1 ./build.sh --test >/dev/null \
+  || fail "tests failed when optimised: run LAYOUT_FIXER_TEST_OPTIMIZED=1 ./build.sh --test"
 echo "Building…"
 ./build.sh >/dev/null 2>&1 || fail "build failed: run ./build.sh"
 

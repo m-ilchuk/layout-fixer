@@ -100,11 +100,12 @@ final class Updater {
     /// Downloads, builds and installs the release found by the last check, then opens the new copy and quits this one.
     func install() {
         guard !installing else { return }
-        guard case .available(let release) = status,
-              let command = InstallCommand.forRelease(tag: release.tag, repository: Updater.repository)
-        else {
+        guard case .available(let release) = status else {
             log.notice("install asked for without a release to install; checking first")
             return check { if case .available = $0 { self.install() } }
+        }
+        guard let command = InstallCommand.forRelease(tag: release.tag, repository: Updater.repository) else {
+            return finish(.failed("the latest release's tag isn't a version (vX.Y.Z)"), nil)
         }
         installing = true
         compileStarted = nil

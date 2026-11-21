@@ -15,7 +15,10 @@ SWIFTC=(swiftc -O -wmo -module-cache-path "$MODULE_CACHE")
 
 if [[ "${1:-}" == "--test" ]]; then
   # Tests without optimising: about 2 s to build instead of 15, a few seconds slower to run.
-  swiftc -Onone -wmo -module-cache-path "$MODULE_CACHE" "${CORE[@]}" Tests/Corpus.swift Tests/main.swift -o build/tests
+  # LAYOUT_FIXER_TEST_OPTIMIZED=1 (release.sh): optimised like the app, so what ships is what was tested.
+  OPTIMIZE=-Onone
+  [[ -n "${LAYOUT_FIXER_TEST_OPTIMIZED:-}" ]] && OPTIMIZE=-O
+  swiftc "$OPTIMIZE" -wmo -module-cache-path "$MODULE_CACHE" "${CORE[@]}" Tests/Corpus.swift Tests/main.swift -o build/tests
   exec build/tests
 fi
 

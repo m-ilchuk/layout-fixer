@@ -30,9 +30,10 @@ struct Version: Comparable, CustomStringConvertible {
 enum InstallCommand {
     static let tagCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
-    /// Nil when the tag isn't a plain release tag ("v0.3.0"): it goes into a shell command.
+    /// Nil when the tag isn't a plain release tag, "v" and three numbers ("v0.3.0"), the shape release.sh makes
+    /// and get.sh reads as a tag: it goes into a shell command.
     static func forRelease(tag: String, repository: String) -> String? {
-        guard !tag.isEmpty, tag.unicodeScalars.allSatisfy(tagCharacters.contains), Version(tag) != nil else { return nil }
+        guard tag.range(of: #"^v[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil else { return nil }
         let url = "https://raw.githubusercontent.com/\(repository)/refs/tags/\(tag)/get.sh"
         return "set -o pipefail; script=$(mktemp) || exit 1; trap 'rm -f \"$script\"' EXIT; "
             + "curl -fsSL \(url) -o \"$script\" && LAYOUT_FIXER_REF=\(tag) bash \"$script\""

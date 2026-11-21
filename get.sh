@@ -41,8 +41,9 @@ else
     REF="$TAG"
   fi
   [[ "$REF" =~ ^[A-Za-z0-9._-]+$ ]] || fail "LAYOUT_FIXER_REF must be a release tag or branch name, not \"$REF\"."
-  # A release tag ("v0.3.0") is read as a tag only, so a branch of the same name can't stand in for it.
-  if [[ "$REF" =~ ^v[0-9] ]]; then KIND=tags; else KIND=heads; fi
+  # A release tag ("v0.3.0", the shape release.sh makes) is read as a tag only, so a branch of the same name
+  # can't stand in for it.
+  if [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then KIND=tags; else KIND=heads; fi
   SOURCE_URL="https://github.com/$REPO/archive/refs/$KIND/$REF.tar.gz"
   echo "Installing Layout Fixer $REF"
 fi

@@ -579,9 +579,10 @@ check("exclusions: nothing being counted is written down",
       String(String(decoding: exclusionDefaults.data(forKey: Exclusions.defaultsKey) ?? Data(), as: UTF8.self).contains("w1")),
       "false")
 exclusionDefaults.set(Data("nope".utf8), forKey: Exclusions.defaultsKey)
-check("exclusions: unreadable ones start empty and are kept aside",
+check("exclusions: unreadable ones start empty and are dropped, not kept aside",
       "\(Exclusions.load(from: exclusionDefaults, now: days(81)).entries.count) "
-        + "\(exclusionDefaults.data(forKey: Exclusions.defaultsKey + ".unreadable") != nil)", "0 true")
+        + "\(exclusionDefaults.data(forKey: Exclusions.defaultsKey) != nil) "
+        + "\(exclusionDefaults.data(forKey: Exclusions.defaultsKey + ".unreadable") != nil)", "0 false false")
 exclusionDefaults.removePersistentDomain(forName: "layout-fixer-tests-exclusions-\(ProcessInfo.processInfo.processIdentifier)")
 
 var shown = Exclusions()
@@ -930,6 +931,8 @@ check("install: a release tag", InstallCommand.forRelease(tag: "v0.3.0", reposit
 check("install: never main", InstallCommand.forRelease(tag: "main", repository: "m-ilchuk/layout-fixer"), "nil")
 check("install: nothing a shell would run", InstallCommand.forRelease(tag: "v1.0.0;rm -rf ~", repository: "m-ilchuk/layout-fixer"), "nil")
 check("install: no empty tag", InstallCommand.forRelease(tag: "", repository: "m-ilchuk/layout-fixer"), "nil")
+check("install: only v and three numbers", [ "0.3.0", "V0.3.0", "v1.0.0+x", "v1.0" ].compactMap {
+    InstallCommand.forRelease(tag: $0, repository: "m-ilchuk/layout-fixer") }.count.description, "0")
 
 print(failures == 0 ? "\nall passed" : "\n\(failures) failed")
 exit(failures == 0 ? 0 : 1)

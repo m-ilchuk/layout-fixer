@@ -10,10 +10,16 @@ let log = Logger(subsystem: "io.github.m-ilchuk.layoutfixer", category: "fixer")
 
 // Events this app posts carry this marker so its own tap lets them through untouched.
 let syntheticMarker: Int64 = 0x4C46_4958  // "LFIX"
-/// Between synthetic keys. At 1.5 ms an app (TextEdit, in the end-to-end test) dropped some backspaces.
-let keyDelayMicroseconds: useconds_t = 4000
+/// After each synthetic key (down and up). usleep runs over: 2500 asked is about 3.7 ms. At about 2.3 ms a key an
+/// app (TextEdit, in the end-to-end test) dropped some backspaces; 4000 (6 ms really) after each of down and up
+/// made a word vanish for over 150 ms while it was retyped in apps that take keystrokes only (the "blink").
+let keyDelayMicroseconds: useconds_t = 2500
 /// After the backspaces and before typing the replacement.
-let pauseAfterEraseMicroseconds: useconds_t = 20_000
+let pauseAfterEraseMicroseconds: useconds_t = 10_000
+/// `defaults write io.github.m-ilchuk.layoutfixer testKeystrokesOnly -bool true`: every fix goes as keystrokes,
+/// even where Accessibility could replace it in one step, so the end-to-end test (`./e2e.sh keystrokes`) checks
+/// the keystroke path in TextEdit.
+let keystrokesOnlyKey = "testKeystrokesOnly"
 let rightOptionTapSeconds: TimeInterval = 0.4
 /// Longer selections are converted but not selected again (that takes one ⇧← per character).
 let maxReselectByArrows = 500
@@ -50,7 +56,8 @@ final class Fixer {
     private(set) var statistics = Statistics.load(from: .standard, now: Date())
     /// Words fix-while-typing leaves as typed (the window's Exclusions): the person's words, kept only in the
     /// app's preferences.
-    private(set) var exclusions = Exclusions.load(from: .standard, now: Date())
+    private(set) var exclusions = Exclusions.load(from: .standard, now: Date(),
+                                                  log: { message in log.notice("\(message, privacy: .public)") })
 
     init() {
         session.autoFix = UserDefaults.standard.bool(forKey: "autoFix")
@@ -66,6 +73,9 @@ final class Fixer {
             self.learn(from: event)
         }
         session.isExcluded = { [unowned self] word, language in self.exclusions.contains(word, language: language) }
+        // Saved again at once: what 0.3.0 wrote also held words still being counted, and a copy it kept aside.
+        exclusions.save(to: .standard)
+        UserDefaults.standard.removeObject(forKey: Exclusions.defaultsKey + ".unreadable")
         // Counting starts at the first launch of a version that counts, not at each launch.
         if UserDefaults.standard.data(forKey: Statistics.defaultsKey) == nil { statistics.save(to: .standard) }
     }
@@ -81,8 +91,9 @@ final class Fixer {
         case .undone, .restored: break
         case .autoFixed, .converted: return
         }
+        let before = exclusions.excluded
         let learned = exclusions.learn(from: event, layouts: layouts, at: Date())
-        exclusions.save(to: .standard)
+        if exclusions.excluded != before { exclusions.save(to: .standard) }  // counted words are never saved
         guard let word = learned else { return }
         log.notice("a word whose fix was undone 3 times is now on the exclusions list")
         Flash.shared.say("\(word): won't fix again", after: Flash.visibleSeconds)
@@ -134,7 +145,21 @@ final class Fixer {
     /// macOS says the layout changed.
     func layoutChanged() { session.layoutChanged(to: KeyLayout.currentLayoutID()) }
 
-    func reset(_ reason: String) { session.reset(reason) }
+    func reset(_ reason: String) {
+        session.reset(reason)
+        passwordField = nil  // a click, Tab or another app: the field may be another one
+    }
+
+    /// Whether the focused field takes a password, asked once per field (until a click, Tab, Return or another
+    /// app), not at every Space.
+    private var passwordField: Bool?
+
+    private func inPasswordField() -> Bool {
+        if let known = passwordField, !IsSecureEventInputEnabled() { return known }
+        let now = Selection.inPasswordField()
+        if !Selection.leftAlone { passwordField = now }  // "can't ask" isn't an answer to keep
+        return now
+    }
 
     // MARK: Event tap
 
@@ -142,17 +167,19 @@ final class Fixer {
     func handle(type: CGEventType, event: CGEvent) -> Bool {
         guard enabled, event.getIntegerValueField(.eventSourceUserData) != syntheticMarker else { return true }
         // A fix is being typed: keys wait until it's done (handled then, in order), or they'd land inside it.
-        if held.replaying, type == .keyDown || type == .flagsChanged, let copy = event.copy(),
-           held.hold(HeldKey(type: type, event: copy)) {
+        // Modifier keys go through at once: held back, a VM or remote desktop would see them stuck.
+        if held.replaying, type == .keyDown, let copy = event.copy(), held.hold(HeldKey(event: copy)) {
             return false
         }
         return handleNow(type: type, event: event)
     }
 
-    private func handleNow(type: CGEventType, event: CGEvent) -> Bool {
+    /// `held`: a key pressed while a fix was being typed, handled after it. The app hasn't received the keys
+    /// handed over just before it yet, so the screen can't be read to check the word.
+    private func handleNow(type: CGEventType, event: CGEvent, held: Bool = false) -> Bool {
         switch type {
         case .keyDown:
-            return handleKeyDown(event)
+            return handleKeyDown(event, held: held)
         case .flagsChanged:
             let held = event.flags.intersection([.maskAlternate, .maskShift, .maskCommand, .maskControl])
             trackRightOptionTap(keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)), held: held)
@@ -164,6 +191,7 @@ final class Fixer {
             return true
         default:
             rightOptionDownAt = nil
+            cancelFix("a click")  // the rest of a fix must not go where the click put the cursor
             reset("a click")  // a click moves the caret
             return true
         }
@@ -188,7 +216,7 @@ final class Fixer {
 
     private var loggedFirstKey = false
 
-    private func handleKeyDown(_ event: CGEvent) -> Bool {
+    private func handleKeyDown(_ event: CGEvent, held: Bool = false) -> Bool {
         if !loggedFirstKey { loggedFirstKey = true; log.notice("receiving key presses") }
         rightOptionDownAt = nil
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
@@ -205,7 +233,7 @@ final class Fixer {
         }
         // A password: nothing typed there is kept or fixed (most password fields hide their keys from every app,
         // but not all do).
-        if keyCode == KeyCode.space && Selection.inPasswordField() {
+        if keyCode == KeyCode.space && session.autoFix && inPasswordField() {
             reset("a password field")
             return true
         }
@@ -216,7 +244,7 @@ final class Fixer {
         let stroke = KeyStroke(keyCode: keyCode, modifiers: carbonModifiers(flags))
         guard let edit = session.type(stroke, eventCharacters: Self.characters(of: event),
                                       reportedLayoutID: KeyLayout.currentLayoutID(),
-                                      screenBeforeCursor: Selection.textBeforeCursor)
+                                      screenBeforeCursor: held ? nil : Selection.textBeforeCursor)
         else { return true }
         apply(edit)
         return false  // the edit types the Space
@@ -226,7 +254,6 @@ final class Fixer {
 
     /// A key pressed while a fix was being typed.
     private struct HeldKey {
-        let type: CGEventType
         let event: CGEvent
     }
     private let held = HeldKeys<HeldKey>()
@@ -234,65 +261,76 @@ final class Fixer {
     /// every key on the Mac and could get the tap turned off.
     private let replayQueue = DispatchQueue(label: "io.github.m-ilchuk.layoutfixer.replay", qos: .userInteractive)
     private var replayNumber = 0
+    /// The fix being typed: set to stop it (a click, another app, too long), checked before every key and
+    /// Accessibility write.
+    private var replayCancel: Flag?
     /// A fix may take this long, plus `replaySecondsPerKey` for each key it types; past that it's stopped and the
     /// held keys go: typing must never stay blocked. Keystrokes take about 16 ms a key with the app's pauses.
     static let replayBaseSeconds: TimeInterval = 2
-    static let replaySecondsPerKey: TimeInterval = 0.03
+    static let replaySecondsPerKey: TimeInterval = 0.02
 
     /// Runs `work` (typing `keys` keys into the app) away from the tap while keys are held, then `done` on the main
     /// thread, then the held keys.
-    private func replay(keys: Int, _ work: @escaping () -> Void, then done: @escaping () -> Void = {}) {
+    private func replay(keys: Int, _ work: @escaping (Flag) -> Void, then done: @escaping () -> Void = {}) {
         replayNumber += 1
         let number = replayNumber
+        let cancel = Flag()
+        replayCancel = cancel
         let limit = Fixer.replayBaseSeconds + Double(keys) * Fixer.replaySecondsPerKey
         held.begin()
         replayQueue.async {
-            Typist.stop.set(false)
-            work()
+            if !cancel.isSet { work(cancel) }
             DispatchQueue.main.async {
-                done()
+                // A stopped fix doesn't switch the layout or flash: what it typed is unknown.
+                if !cancel.isSet { done() }
                 self.endReplay(number)
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
             guard number == self.replayNumber, self.held.replaying else { return }
-            // Stop typing it first, so the held keys can't land in the middle of it.
-            Typist.stop.set(true)
-            log.notice("a fix of \(keys) keys took over \(limit, privacy: .public) s: stopped it, letting the keys pressed meanwhile through")
-            self.reset("a fix taking too long")
-            self.endReplay(number)
+            log.notice("a fix of \(keys) keys took over \(limit, privacy: .public) s")
+            self.cancelFix("a fix taking too long")
         }
+    }
+
+    /// Stops the fix being typed, if any, and lets the held keys go: its remaining keys and Accessibility writes
+    /// are dropped, so nothing lands where the cursor went next.
+    func cancelFix(_ reason: String) {
+        guard held.replaying, let cancel = replayCancel else { return }
+        cancel.set(true)
+        log.notice("stopped the fix being typed: \(reason, privacy: .public)")
+        reset(reason)
+        endReplay(replayNumber)
     }
 
     private func endReplay(_ number: Int) {
         guard number == replayNumber, held.replaying else { return }
         if held.count > 0 { log.notice("\(self.held.count) keys pressed during a fix, handled now") }
         held.end { key in
-            // Typed now, on the layout that's on now: the person typed on after the fix, in its language.
-            guard handleNow(type: key.type, event: key.event), key.type == .keyDown else { return }
-            Typist.repost(keyCode: UInt16(key.event.getIntegerValueField(.keyboardEventKeycode)), flags: key.event.flags)
+            guard handleNow(type: .keyDown, event: key.event, held: true) else { return }
+            Typist.repost(key.event)
         }
     }
 
     /// Carry out a session edit: erase, type, switch the keyboard, flash.
     /// Through Accessibility when the app allows it (one step, nothing to drop), else as keystrokes.
     private func apply(_ edit: TypingSession.Edit) {
-        replay(keys: edit.erase + edit.text.count, { Fixer.replace(edit) }, then: {
+        replay(keys: edit.erase + edit.text.count, { cancel in Fixer.replace(edit, cancel: cancel) }, then: {
             if edit.switches { edit.target.select() }
             Flash.shared.show(from: edit.source, to: edit.target)
         })
     }
 
-    private static func replace(_ edit: TypingSession.Edit) {
-        switch Selection.replaceBeforeCursor(edit.erase, with: edit.text) {
+    private static func replace(_ edit: TypingSession.Edit, cancel: Flag) {
+        switch Selection.replaceBeforeCursor(edit.erase, with: edit.text, cancel: cancel) {
         case .replaced:
             log.notice("replaced \(edit.erase) characters through accessibility")
         case .unverified:
             log.notice("replaced \(edit.erase) characters through accessibility, but couldn't read the result back")
         case .notPossible:
-            Typist.erase(count: edit.erase)
+            Typist.erase(count: edit.erase, cancel: cancel)
             usleep(pauseAfterEraseMicroseconds)
-            Typist.type(edit.text)
+            Typist.type(edit.text, cancel: cancel)
             log.notice("replaced \(edit.erase) characters with keystrokes")
         }
     }
@@ -329,6 +367,10 @@ final class Fixer {
             return fixSelection(selection)
         }
         if session.hasTypedWord {
+            guard !inPasswordField() else {
+                reset("a password field")
+                return NSSound.beep()
+            }
             log.notice("no selection; converting the last word")
             guard let edit = session.convertLastWord() else { return NSSound.beep() }
             return apply(edit)
@@ -363,7 +405,7 @@ final class Fixer {
             let ours = pasteboard.changeCount
             Typist.shortcut(KeyCode.v)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                self.replay(keys: converted.count) { Selection.reselect(converted, after: selection) }
+                self.replay(keys: converted.count) { cancel in Selection.reselect(converted, after: selection, cancel: cancel) }
             }
             self.reset("converting a selection")
             target.select()
@@ -396,12 +438,16 @@ final class Fixer {
     }
 }
 
-/// A time shared between the main thread and the replay queue.
-final class Moment {
+/// An app being left alone for a while, shared between the main thread and the replay queue.
+final class Backoff {
     private let lock = NSLock()
-    private var date = Date.distantPast
-    var isAhead: Bool { lock.withLock { date > Date() } }
-    func set(_ new: Date) { lock.withLock { date = new } }
+    private var app: pid_t?
+    private var until = Date.distantPast
+    func isOn(for pid: pid_t?) -> Bool { lock.withLock { pid != nil && pid == app && until > Date() } }
+    func start(_ pid: pid_t, for seconds: TimeInterval) {
+        lock.withLock { (app, until) = (pid, Date().addingTimeInterval(seconds)) }
+    }
+    func end() { lock.withLock { app = nil } }
 }
 
 /// A yes/no shared between the main thread and the replay queue.
@@ -414,8 +460,6 @@ final class Flag {
 
 /// Posts keystrokes marked as ours.
 enum Typist {
-    /// Set when a fix ran too long: the keys not yet sent are dropped.
-    static let stop = Flag()
 
     private static let source: CGEventSource? = {
         let source = CGEventSource(stateID: .privateState)
@@ -423,27 +467,40 @@ enum Typist {
         return source
     }()
 
-    static func erase(count: Int) {
-        for _ in 0..<count { press(KeyCode.delete, flags: []) }
+    /// `cancel`, once set, drops the keys not yet sent.
+    static func erase(count: Int, cancel: Flag) {
+        for _ in 0..<count where !cancel.isSet { press(KeyCode.delete, flags: []) }
     }
 
-    static func type(_ text: String) {
-        for char in text {
+    static func type(_ text: String, cancel: Flag) {
+        for char in text where !cancel.isSet {
             let units = Array(String(char).utf16)
             for down in [true, false] {
                 guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { continue }
                 event.flags = []
                 event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-                post(event)
+                post(event, pause: !down)  // one pause a key, after it's released
             }
         }
     }
 
-    /// A key the person pressed while a fix was typed, sent now: the key and its modifiers, so the app reads it
-    /// on the layout that's on now.
-    static func repost(keyCode: UInt16, flags: CGEventFlags) {
-        press(keyCode, flags: flags.intersection([.maskShift, .maskAlphaShift, .maskAlternate, .maskCommand, .maskControl]),
-              pause: false)
+    /// Between keys handed over after a fix (they go from the main thread, so kept short).
+    static let repostDelayMicroseconds: useconds_t = 1000
+
+    /// A key pressed while a fix was typed, sent now. From the keyboard: rebuilt from the key and its modifiers,
+    /// so the app reads it on the layout that's on now (the person typed on after the fix, in its language).
+    /// From another program (a text expander, auto-type: its own text, often on key 0): sent as it was.
+    static func repost(_ event: CGEvent) {
+        let fromKeyboard = event.getIntegerValueField(.eventSourceStateID) == Int64(CGEventSourceStateID.hidSystemState.rawValue)
+        guard fromKeyboard else {
+            event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
+            event.post(tap: .cghidEventTap)
+            usleep(repostDelayMicroseconds)
+            return
+        }
+        let flags = event.flags.intersection([.maskShift, .maskAlphaShift, .maskAlternate, .maskCommand, .maskControl])
+        press(UInt16(event.getIntegerValueField(.keyboardEventKeycode)), flags: flags, pause: false)
+        usleep(repostDelayMicroseconds)
     }
 
     static func shortcut(_ keyCode: UInt16) {
@@ -451,20 +508,19 @@ enum Typist {
     }
 
     /// ⇧← `count` times: selects that many characters before the cursor.
-    static func selectBackward(count: Int) {
-        for _ in 0..<count { press(KeyCode.leftArrow, flags: .maskShift) }
+    static func selectBackward(count: Int, cancel: Flag) {
+        for _ in 0..<count where !cancel.isSet { press(KeyCode.leftArrow, flags: .maskShift) }
     }
 
     private static func press(_ keyCode: UInt16, flags: CGEventFlags, pause: Bool = true) {
         for down in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: down) else { continue }
             event.flags = flags
-            post(event, pause: pause)
+            post(event, pause: pause && !down)
         }
     }
 
     private static func post(_ event: CGEvent, pause: Bool = true) {
-        guard pause == false || !stop.isSet else { return }
         event.setIntegerValueField(.eventSourceUserData, value: syntheticMarker)
         event.post(tap: .cghidEventTap)
         if pause { usleep(keyDelayMicroseconds) }
@@ -491,7 +547,7 @@ enum Selection {
 
     /// Select the text just pasted over `selection`, so the next tap converts it back:
     /// through Accessibility where the app allows it, otherwise with ⇧←.
-    static func reselect(_ pasted: String, after selection: Current?) {
+    static func reselect(_ pasted: String, after selection: Current?, cancel: Flag) {
         if let selection, let start = selection.range {
             var range = CFRange(location: start.location, length: (pasted as NSString).length)
             if let value = AXValueCreate(.cfRange, &range),
@@ -500,7 +556,7 @@ enum Selection {
             }
         }
         guard pasted.count <= maxReselectByArrows else { return }
-        Typist.selectBackward(count: pasted.count)
+        Typist.selectBackward(count: pasted.count, cancel: cancel)
     }
 
     enum Replacement { case replaced, unverified, notPossible }
@@ -513,10 +569,14 @@ enum Selection {
     /// Replace the `count` characters before the cursor with `text` through Accessibility, in one step: no
     /// keystrokes an app can drop. `.notPossible` when the app doesn't allow it and nothing changed (send
     /// keystrokes instead); `.unverified` when it took the text but it can't be read back (don't type it again).
-    static func replaceBeforeCursor(_ count: Int, with text: String) -> Replacement {
+    static func replaceBeforeCursor(_ count: Int, with text: String, cancel: Flag) -> Replacement {
         guard count > 0, let element = focusedElement(), let cursor = selectedRange(in: element),
               cursor.length == 0, cursor.location >= count
         else { return .notPossible }
+        if UserDefaults.standard.bool(forKey: keystrokesOnlyKey) {
+            log.notice("keystrokes for this field: the keystrokes-only test setting is on")
+            return .notPossible
+        }
         let roles = rolesUpToWindow(from: element)
         guard ReplaceMethod.forField(roles: roles) == .accessibility else {
             log.notice("keystrokes for this field: \(roles.isEmpty ? "no roles" : "inside a web page", privacy: .public)")
@@ -527,10 +587,11 @@ enum Selection {
               settable.boolValue
         else { return .notPossible }
         var word = CFRange(location: cursor.location - count, length: count)
-        guard let range = AXValueCreate(.cfRange, &word),
+        guard !cancel.isSet, let range = AXValueCreate(.cfRange, &word),
               AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, range) == .success
         else { return .notPossible }
-        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
+        guard !cancel.isSet,
+              AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
         else {
             // Put the cursor back where it was, so the keystrokes that follow go to the right place.
             var back = cursor
@@ -556,15 +617,15 @@ enum Selection {
         var before = CFRange(location: range.location - length, length: length)
         guard let value = AXValueCreate(.cfRange, &before) else { return nil }
         var text: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-                element, kAXStringForRangeParameterizedAttribute as CFString, value, &text) == .success
+        guard asking({ AXUIElementCopyParameterizedAttributeValue(
+                element, kAXStringForRangeParameterizedAttribute as CFString, value, &text) }) == .success
         else { return nil }
         return text as? String
     }
 
     private static func selectedRange(in element: AXUIElement) -> CFRange? {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+        guard asking({ AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) }) == .success,
               let value, CFGetTypeID(value) == AXValueGetTypeID()
         else { return nil }
         var range = CFRange()
@@ -609,11 +670,12 @@ enum Selection {
     }
 
     /// The focused field is a password field, or macOS is in secure input (a password is being typed somewhere).
+    /// While the front app is left alone it can't be asked: then it counts as one, so nothing is kept or fixed.
     static func inPasswordField() -> Bool {
-        if IsSecureEventInputEnabled() { return true }
+        if IsSecureEventInputEnabled() || leftAlone { return true }
         guard let element = focusedElement() else { return false }
         var subrole: CFTypeRef?
-        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+        _ = asking { AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole) }
         return (subrole as? String) == kAXSecureTextFieldSubrole as String
     }
 
@@ -626,20 +688,39 @@ enum Selection {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), messagingTimeoutSeconds)
     }
 
-    /// After an app doesn't answer in time, it's left alone for a few seconds (fixes go as keystrokes, the screen
-    /// isn't read): asking again at every key would stall each one by the timeout.
+    /// After an app doesn't answer in time, that app is left alone for a few seconds (fixes go as keystrokes, the
+    /// screen isn't read): asking again at every key would stall each one by the timeout. Other apps, and the
+    /// same app once you switch back to it, are asked as usual.
     static let unresponsiveBackoffSeconds: TimeInterval = 5
-    private static let unresponsiveUntil = Moment()
+    /// A call that failed this fast was refused, not left waiting: no reason to leave the app alone.
+    static let waitedSeconds: TimeInterval = 0.2
+    private static let unresponsive = Backoff()
+
+    /// The front app, which is the one Accessibility asks about the focused field.
+    private static var frontApp: pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+
+    /// The front app is being left alone (it didn't answer Accessibility in time a moment ago).
+    static var leftAlone: Bool { unresponsive.isOn(for: frontApp) }
+
+    /// Another app is in front: whatever made the last one slow doesn't apply.
+    static func appSwitched() { unresponsive.end() }
+
+    /// An Accessibility call, timed: one that waited out the timeout leaves the front app alone for a while.
+    private static func asking(_ call: () -> AXError) -> AXError {
+        let started = Date()
+        let result = call()
+        if result == .cannotComplete, Date().timeIntervalSince(started) >= waitedSeconds, let app = frontApp {
+            log.notice("the front app didn't answer Accessibility in time; leaving it alone for a few seconds")
+            unresponsive.start(app, for: unresponsiveBackoffSeconds)
+        }
+        return result
+    }
 
     private static func focusedElement() -> AXUIElement? {
-        guard !unresponsiveUntil.isAhead else { return nil }
+        guard !leftAlone else { return nil }
         let system = AXUIElementCreateSystemWide()
         var focused: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused)
-        if result == .cannotComplete {
-            log.notice("the focused app didn't answer Accessibility in time; leaving it alone for a few seconds")
-            unresponsiveUntil.set(Date().addingTimeInterval(unresponsiveBackoffSeconds))
-        }
+        let result = asking { AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused) }
         guard result == .success, let element = focused, CFGetTypeID(element) == AXUIElementGetTypeID()
         else { return nil }
         return (element as! AXUIElement)
@@ -765,7 +846,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.layoutReloadDelay, execute: reload)
         }
         NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in fixer.reset("switching apps") }
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in
+            fixer.cancelFix("switching apps")
+            Selection.appSwitched()
+            SystemSpeller.forget()  // the words asked about stay in memory no longer than what was typed
+            fixer.reset("switching apps")
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // Click: the settings window. Right-click or ⌥-click: a short menu.

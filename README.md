@@ -132,16 +132,20 @@ Accessibility with **–**.
 ## Privacy
 
 Layout Fixer needs Accessibility to read the keys you press and the text you select, and to type the converted text.
-It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch). The only words it
-writes down are the ones on its Exclusions list, in its settings on this Mac (a word whose fix you undid fewer than
-3 times is only kept in memory); statistics are counts only, and the debug log never
-contains your text. Its only network call is the update check to GitHub (`api.github.com`), which sends nothing about you;
-**Check for updates automatically** turns it off. All of its code is in [`Sources/`](Sources).
+It keeps the keys only in memory (at most 300, cleared on every click, Enter or app switch), and the words it asked
+the spell checker about until you switch apps. Nothing is kept or fixed in password fields. The only words it writes
+down are the ones on its Exclusions list, in its settings on this Mac (a word whose fix you undid fewer than 3 times
+is only kept in memory); statistics are counts only, and the debug log never contains your text. Its network calls
+are the update check to GitHub (`api.github.com`), which sends nothing about you (**Check for updates
+automatically** turns it off), and, when you install or update, downloading the release's installer and source
+from GitHub (`raw.githubusercontent.com`, `github.com`). All of its code is in [`Sources/`](Sources).
 
 So that updates keep the Accessibility permission, macOS recognises Layout Fixer by its identifier
 (`io.github.m-ilchuk.layoutfixer`) rather than by one build's fingerprint. The trade-off: a program already on your
-Mac that took the same identifier would get the same permission. If you'd rather tie it to your own builds only,
-sign them with a local certificate (see Develop below).
+Mac that took the same identifier would get the same permission. A local certificate (see Develop below) ties it to
+builds signed with that certificate instead; that keeps out programs from elsewhere, but not a program already
+running as you, which can sign with your certificate too. Only a build signed and notarized by a registered
+developer would close that.
 
 ## How it works
 

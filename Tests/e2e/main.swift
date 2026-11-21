@@ -69,7 +69,14 @@ func restoreTextEdit() {
         else { _ = defaults(["delete", "com.apple.TextEdit", key]) }
     }
 }
-cleanUp = restoreTextEdit
+// `./e2e.sh keystrokes`: every fix as keystrokes (the path apps like Slack, Claude and browsers get), in TextEdit.
+let keystrokesOnly = CommandLine.arguments.contains("keystrokes")
+let layoutFixerDomain = "io.github.m-ilchuk.layoutfixer"
+if keystrokesOnly { _ = defaults(["write", layoutFixerDomain, "testKeystrokesOnly", "-bool", "true"]) }
+cleanUp = {
+    restoreTextEdit()
+    if keystrokesOnly { _ = defaults(["delete", layoutFixerDomain, "testKeystrokesOnly"]) }
+}
 signal(SIGINT) { _ in cleanUp(); exit(130) }
 
 let installed = KeyLayout.installed(ids: ["com.apple.keylayout.ABC", "com.apple.keylayout.Ukrainian-PC"])
@@ -159,7 +166,7 @@ let sentences = everything ? Corpus.all
 let reportURL = URL(fileURLWithPath: "build/e2e-report.txt")
 print("e2e: \(sentences.count) sentences × \(Scenario.allCases.count) scenarios, one TextEdit document each.")
 print("e2e: don't touch the keyboard or mouse until it says it's done.")
-var report = ["Layout Fixer end-to-end test, \(Date())", ""]
+var report = ["Layout Fixer end-to-end test, \(Date())\(keystrokesOnly ? ", every fix as keystrokes" : "")", ""]
 var misses = 0
 for scenario in Scenario.allCases {
     let lines = typeScenario(sentences, scenario)

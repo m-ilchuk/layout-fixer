@@ -150,11 +150,12 @@ struct Exclusions: Codable, Equatable {
     }
 
     /// The list saved under `defaultsKey`, words counted too long ago forgotten; an empty one when there's none
-    /// or it can't be read (then kept aside under "<key>.unreadable").
-    static func load(from defaults: UserDefaults, now: Date) -> Exclusions {
+    /// or it can't be read (then dropped: it may hold words, and nothing reads a copy kept aside).
+    static func load(from defaults: UserDefaults, now: Date, log: (String) -> Void = { _ in }) -> Exclusions {
         guard let data = defaults.data(forKey: defaultsKey) else { return Exclusions() }
         guard var saved = try? JSONDecoder().decode(Exclusions.self, from: data) else {
-            defaults.set(data, forKey: defaultsKey + ".unreadable")
+            log("the saved exclusions couldn't be read; starting with none")
+            defaults.removeObject(forKey: defaultsKey)
             return Exclusions()
         }
         saved.forgetOld(now: now)

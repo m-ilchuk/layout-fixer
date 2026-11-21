@@ -1,6 +1,7 @@
 #!/bin/bash
 # End-to-end test: types corpus sentences into TextEdit with real key presses while Layout Fixer runs, and checks
-# what TextEdit shows. `./e2e.sh` for a sample, `./e2e.sh all` for every sentence. Takes over the keyboard while it
+# what TextEdit shows. `./e2e.sh` for a sample, `./e2e.sh all` for every sentence; add `keystrokes` to send every fix as key
+# presses (the way Slack, Claude and browsers get them) instead of replacing it in one step. Takes over the keyboard while it
 # runs (a few minutes): don't type or click. Needs Accessibility for Terminal (README: "End-to-end test").
 set -euo pipefail
 cd "$(dirname "$0")"

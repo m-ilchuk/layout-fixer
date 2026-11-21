@@ -7,7 +7,17 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+### Fixes
+- Less of a blink in Slack, Claude, browsers and other apps that take fixes as key presses: the word was gone for
+  over 150 ms while it was retyped; keys now go about three times faster.
+- A fix being typed stops when you click elsewhere or switch apps, so its remaining keys can't land in the new place.
+- Keys you press during a fix come back exactly: text from a text expander or auto-type tool stays its own, and
+  modifier keys (⇧, ⌘, ⌥) are never held back. A Space typed during a fix no longer stops the next word being fixed.
+
 ### Faster
+- Typing a Space no longer asks the app about the field every time: whether it's a password field is asked once
+  per field, and not at all with fix-while-typing off. A slow app is left alone only after it really kept a key
+  waiting, only that app, and only until you switch to another.
 - Updates build in about 8 seconds instead of 14 on an M3 (whole-module compiling), and the app is smaller.
 - Words the dictionaries don't know (technical terms, typos) no longer cost up to 17 ms at every Space: the spell
   checker's answers are remembered.
@@ -26,7 +36,11 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
   by its tag only, so no branch can stand in for it.
 - Converting a selection marks the converted text so clipboard managers don't record it, and the clipboard is put
   back only if nothing else was copied in the meantime.
-- Nothing is kept or fixed in password fields, or while macOS's secure input is on.
+- Nothing is kept or fixed in password fields, or while macOS's secure input is on; right ⌥ on the last word checks
+  for a password field too.
+- Words 0.3.0 saved while counting toward an exclusion are removed at launch, and so is a raw copy it could keep
+  aside; the spell checker's remembered words are forgotten when you switch apps.
+- Updates accept only release tags shaped `vX.Y.Z`; anything else is refused instead of retried.
 - A failed install leaves the installed app as it was; the update log no longer holds the release notes.
 
 ## 0.3.0 — 2026-11-21
