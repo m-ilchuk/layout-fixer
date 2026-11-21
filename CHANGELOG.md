@@ -7,6 +7,8 @@ heading and uses it as the GitHub release notes, which the app's update dialog s
 
 ## Unreleased
 
+## 0.3.1 — 2026-11-21
+
 ### Changed
 - The Exclusions page lists every word whose fix you undid, with its status: on (learned after 3 undos, or turned on
   by you) or "1 of 3 undos" / "2 of 3 undos". Select a word still counting and click **Turn On** to stop it being
