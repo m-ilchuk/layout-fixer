@@ -10,6 +10,8 @@ Bulgarian, Hebrew, German, …).
 
 A small menu bar app for macOS 13 or newer, on Apple silicon or Intel. Free and open source.
 
+<img src="docs/demo.gif" width="760" alt="Layout Fixer at work: in a chat, руддщ typed on the Ukrainian layout becomes hello on Space and the keyboard switches to English; in an email, Lj,hbq typed on English becomes Добрий; in a note, a selected line typed on the wrong layout converts when the right Option key is tapped">
+
 ## Install
 
 1. Open **Terminal** (press ⌘Space, type `Terminal`, press Return).
